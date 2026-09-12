@@ -3,6 +3,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import dotenv from 'dotenv';
+import { OfficialEducationDataProvider } from './server/schoolProvider';
 
 dotenv.config();
 
@@ -108,6 +109,25 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     geminiConfigured: !!process.env.GEMINI_API_KEY,
   });
+});
+
+// Official Education Reference School Search Endpoint
+app.get('/api/schools/search', async (req, res) => {
+  try {
+    const query = typeof req.query.q === 'string' ? req.query.q : '';
+    const result = await OfficialEducationDataProvider.search(query);
+    res.json({ success: true, ...result });
+  } catch (error: unknown) {
+    console.error('Error searching schools:', error);
+    const message = error instanceof Error ? error.message : 'Gagal menghubungi data referensi sekolah';
+    res.status(500).json({
+      success: false,
+      found: false,
+      candidates: [],
+      message: 'Tidak dapat menghubungi sumber data sekolah saat ini.',
+      error: message,
+    });
+  }
 });
 
 // 1. Endpoint: AI Understanding & Breakdown of CP

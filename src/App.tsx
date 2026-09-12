@@ -9,6 +9,7 @@ import {
   TPData,
   ATPData,
   AdministrationWorkspace,
+  AppDocumentRecord,
 } from './types';
 import {
   getAppData,
@@ -20,6 +21,7 @@ import {
   saveCP,
   saveTP,
   saveATP,
+  saveDocuments,
   setActiveProfileId,
   setActiveWorkspaceId,
   createWorkspace,
@@ -255,7 +257,12 @@ export function App() {
               cp={activeCP}
               tp={activeTP}
               atp={activeATP}
+              documents={dataStore.documents}
               onBackToStep={(step) => setCurrentStep(step)}
+              onUpdateDocuments={(updatedDocs) => {
+                saveDocuments(updatedDocs);
+                refreshData();
+              }}
             />
           )}
         </section>

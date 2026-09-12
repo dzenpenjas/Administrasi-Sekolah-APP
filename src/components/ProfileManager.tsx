@@ -13,10 +13,11 @@ import {
   ArrowRight,
   Info,
   CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import { TeacherProfile, SchoolData } from '../types';
 import { EDUCATION_LEVELS } from '../data/curriculumDefaults';
-import { SchoolIdentityProvider, SchoolCandidate } from '../services/schoolProvider';
+import { SchoolIdentityProvider, SchoolSearchService, SchoolCandidate } from '../services/schoolProvider';
 
 interface ProfileManagerProps {
   profiles: TeacherProfile[];
@@ -68,6 +69,9 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SchoolCandidate[]>([]);
   const [searchNotice, setSearchNotice] = useState<string | null>(null);
+  const [isSearchingSchool, setIsSearchingSchool] = useState(false);
+  const [searchHasError, setSearchHasError] = useState(false);
+  const [searchCompleted, setSearchCompleted] = useState(false);
 
   const handleOpenAddProfile = () => {
     const newProfile: TeacherProfile = {
@@ -104,27 +108,55 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
     setIsEditingProfile(false);
   };
 
-  const handleSearchSchool = (e?: React.FormEvent) => {
+  const handleSearchSchool = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const result = SchoolIdentityProvider.searchSchool(searchQuery);
-    setSearchResults(result.candidates);
-    setSearchNotice(result.message);
+    if (!searchQuery.trim()) {
+      setSearchNotice('Ketik nama sekolah atau NPSN terlebih dahulu.');
+      return;
+    }
+
+    setIsSearchingSchool(true);
+    setSearchHasError(false);
+    setSearchNotice(null);
+    setSearchCompleted(false);
+
+    try {
+      const result = await SchoolSearchService.searchSchool(searchQuery);
+      setSearchResults(result.candidates || []);
+      setSearchNotice(result.message);
+      setSearchHasError(!!result.error);
+      setSearchCompleted(true);
+    } catch {
+      setSearchHasError(true);
+      setSearchNotice('Tidak dapat menghubungi sumber data sekolah saat ini.');
+      setSearchResults([]);
+      setSearchCompleted(true);
+    } finally {
+      setIsSearchingSchool(false);
+    }
   };
 
   const handleSelectCandidate = (cand: SchoolCandidate) => {
     setSchoolForm((prev) => ({
       ...prev,
-      name: cand.name,
-      npsn: cand.npsn,
-      address: cand.address,
-      village: cand.village,
-      district: cand.district,
-      regency: cand.regency,
-      province: cand.province,
-      principalName: cand.principalName,
-      principalNip: cand.principalNip,
+      name: cand.name || prev.name,
+      npsn: cand.npsn || prev.npsn,
+      address: cand.address || prev.address,
+      village: cand.village || prev.village,
+      district: cand.district || prev.district,
+      regency: cand.regency || prev.regency,
+      province: cand.province || prev.province,
+      principalName: cand.principalName || prev.principalName || '',
+      principalNip: cand.principalNip || prev.principalNip || '',
     }));
-    setSearchNotice(`Data dipilih dari: ${cand.source}. Silakan tinjau dan sesuaikan.`);
+    setSearchNotice(`Data berhasil dimuat dari: ${cand.source || 'Data Referensi Pendidikan Kemendikdasmen'}. Data kepala sekolah perlu diverifikasi dan dapat diisi/diedit secara manual.`);
+  };
+
+  const handleFocusManualInput = () => {
+    const input = document.getElementById('input-school-name');
+    if (input) {
+      input.focus();
+    }
   };
 
   const handleSaveSchoolSubmit = (e: React.FormEvent) => {
@@ -485,15 +517,22 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
             </div>
 
             {/* School Lookup Section */}
-            <div className="bg-blue-50/60 p-3.5 rounded-xl border border-blue-100 space-y-2">
-              <label className="block text-xs font-bold text-blue-950 uppercase flex items-center gap-1.5">
-                <Search className="w-3.5 h-3.5 text-blue-600" />
-                <span>Cari / Lengkapi Otomatis dari Direktori Sekolah</span>
-              </label>
+            <div className="bg-blue-50/70 p-4 rounded-xl border border-blue-200/80 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-blue-950 uppercase flex items-center gap-1.5">
+                  <Search className="w-4 h-4 text-blue-600" />
+                  <span>Cari Data Sekolah Online (Data Referensi Kemendikdasmen)</span>
+                </label>
+                <span className="text-[10px] font-medium text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-full">
+                  Sumber Resmi
+                </span>
+              </div>
+
               <div className="flex gap-2">
                 <input
+                  id="input-search-school-query"
                   type="text"
-                  placeholder="Ketik nama sekolah atau NPSN (misal: SDN Karang Tengah, Menteng, Surabaya)..."
+                  placeholder="Ketik Nama Sekolah atau 8-Digit NPSN..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -502,43 +541,152 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                       handleSearchSchool();
                     }
                   }}
-                  className="flex-1 text-xs px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600"
+                  className="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600 shadow-xs"
                 />
                 <button
+                  id="btn-do-search-school"
                   type="button"
+                  disabled={isSearchingSchool}
                   onClick={() => handleSearchSchool()}
-                  className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-semibold shrink-0 cursor-pointer"
+                  className="px-4 py-2.5 bg-blue-700 hover:bg-blue-800 disabled:bg-blue-400 text-white rounded-xl text-xs font-semibold shrink-0 cursor-pointer shadow-xs transition flex items-center gap-1.5"
                 >
-                  Cari
+                  {isSearchingSchool ? (
+                    <>
+                      <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      <span>Mencari...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-3.5 h-3.5" />
+                      <span>Cari Sekolah</span>
+                    </>
+                  )}
                 </button>
               </div>
 
-              {searchNotice && (
-                <p className="text-[11px] text-blue-900 font-medium">{searchNotice}</p>
+              {/* Status & Feedback Messages */}
+              {isSearchingSchool && (
+                <div className="flex items-center gap-2 text-xs text-blue-700 py-1 font-medium animate-pulse">
+                  <div className="w-3 h-3 border-2 border-blue-600/40 border-t-blue-600 rounded-full animate-spin" />
+                  <span>Menghubungi data referensi satuan pendidikan Kemendikdasmen...</span>
+                </div>
               )}
 
-              {searchResults.length > 0 && (
-                <div className="space-y-1.5 pt-2 max-h-40 overflow-y-auto">
+              {searchNotice && !isSearchingSchool && (
+                <div
+                  className={`p-2.5 rounded-lg text-xs flex items-start gap-2 ${
+                    searchHasError
+                      ? 'bg-rose-50 text-rose-800 border border-rose-200'
+                      : searchResults.length === 0 && searchCompleted
+                      ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                      : 'bg-emerald-50 text-emerald-900 border border-emerald-200'
+                  }`}
+                >
+                  {searchHasError ? (
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  ) : searchResults.length === 0 && searchCompleted ? (
+                    <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 space-y-1.5">
+                    <p className="font-medium">{searchNotice}</p>
+
+                    {/* Actions if error or not found */}
+                    {searchHasError && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleSearchSchool()}
+                          className="px-2.5 py-1 bg-rose-700 hover:bg-rose-800 text-white text-[11px] font-semibold rounded-md transition cursor-pointer"
+                        >
+                          Coba Lagi
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleFocusManualInput}
+                          className="px-2.5 py-1 bg-white border border-rose-300 text-rose-700 hover:bg-rose-100 text-[11px] font-semibold rounded-md transition cursor-pointer"
+                        >
+                          Isi Manual
+                        </button>
+                      </div>
+                    )}
+
+                    {searchResults.length === 0 && searchCompleted && !searchHasError && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={handleFocusManualInput}
+                          className="px-2.5 py-1 bg-amber-700 hover:bg-amber-800 text-white text-[11px] font-semibold rounded-md transition cursor-pointer"
+                        >
+                          Masukkan Data Manual
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Candidates List */}
+              {searchResults.length > 0 && !isSearchingSchool && (
+                <div className="space-y-2 pt-1 max-h-48 overflow-y-auto pr-1">
+                  <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
+                    Hasil Pencarian ({searchResults.length} Sekolah Ditemukan):
+                  </div>
                   {searchResults.map((cand, idx) => (
                     <div
                       key={idx}
                       onClick={() => handleSelectCandidate(cand)}
-                      className="p-2.5 rounded-lg bg-white border border-blue-200 hover:border-blue-500 hover:bg-blue-50/50 cursor-pointer transition flex items-start justify-between gap-2"
+                      className="p-3 rounded-xl bg-white border border-blue-200/90 hover:border-blue-600 hover:bg-blue-50/60 cursor-pointer transition shadow-2xs group"
                     >
-                      <div>
-                        <div className="text-xs font-bold text-slate-900">{cand.name}</div>
-                        <div className="text-[11px] text-slate-500">
-                          NPSN: {cand.npsn} • {cand.regency}, {cand.province}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-bold text-slate-900 group-hover:text-blue-700">
+                              {cand.name}
+                            </span>
+                            {cand.level && (
+                              <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 text-[10px] font-bold rounded">
+                                {cand.level}
+                              </span>
+                            )}
+                            {cand.status && (
+                              <span className="px-1.5 py-0.2 bg-slate-100 text-slate-700 text-[10px] font-medium rounded">
+                                {cand.status}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            NPSN: <span className="font-semibold text-slate-700">{cand.npsn || '-'}</span> • {cand.regency}, {cand.province}
+                          </div>
+                          {cand.address && (
+                            <div className="text-[10px] text-slate-400 truncate max-w-sm">
+                              {cand.address} {cand.village ? `, ${cand.village}` : ''} {cand.district ? `, ${cand.district}` : ''}
+                            </div>
+                          )}
                         </div>
-                        <div className="text-[10px] text-blue-700">Kepsek: {cand.principalName}</div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectCandidate(cand);
+                          }}
+                          className="text-[11px] font-bold text-blue-700 bg-blue-50 group-hover:bg-blue-700 group-hover:text-white border border-blue-200 group-hover:border-blue-700 px-3 py-1.5 rounded-lg shrink-0 transition cursor-pointer shadow-2xs"
+                        >
+                          Pilih Sekolah
+                        </button>
                       </div>
-                      <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded shrink-0">
-                        Gunakan Data
-                      </span>
                     </div>
                   ))}
                 </div>
               )}
+            </div>
+
+            <div className="bg-amber-50/80 border border-amber-200/90 p-3 rounded-xl text-[11px] text-amber-900 flex items-start gap-2">
+              <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <span>
+                <strong>Catatan Verifikasi:</strong> Seluruh data sekolah di bawah tetap dapat Anda edit secara manual. Data Kepala Sekolah & NIP wajib diverifikasi/diisi manual oleh guru untuk keperluan lembar pengesahan resmi.
+              </span>
             </div>
 
             <form onSubmit={handleSaveSchoolSubmit} className="space-y-3.5 pt-2">

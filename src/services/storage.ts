@@ -776,6 +776,23 @@ export function saveATP(atp: ATPData): void {
   saveAppStorage(current);
 }
 
+export function saveDocumentRecord(doc: AppDocumentRecord): void {
+  const current = loadAppStorage();
+  const idx = current.documents.findIndex((d) => d.id === doc.id || (d.type === doc.type && d.workspaceId === doc.workspaceId));
+  if (idx >= 0) {
+    current.documents[idx] = doc;
+  } else {
+    current.documents.push(doc);
+  }
+  saveAppStorage(current);
+}
+
+export function saveDocuments(docs: AppDocumentRecord[]): void {
+  const current = loadAppStorage();
+  current.documents = docs;
+  saveAppStorage(current);
+}
+
 export function exportAppDataAsJSON(): void {
   const state = loadAppStorage();
   const jsonStr = JSON.stringify(
