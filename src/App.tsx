@@ -47,13 +47,13 @@ export function App() {
   }, [dataStore]);
 
   const {
-    activeProfile,
-    activeSchool,
-    activeAcademicSetting,
-    activeCP,
-    activeTP,
-    activeATP,
-    activeContext,
+    profile: activeProfile,
+    school: activeSchool,
+    academicSetting: activeAcademicSetting,
+    cp: activeCP,
+    tp: activeTP,
+    atp: activeATP,
+    context: activeContext,
   } = workspace;
 
   // Handlers

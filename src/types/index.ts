@@ -147,6 +147,13 @@ export interface ProfileWorkspaceData {
   tp: TPData;
   atp: ATPData;
   documents: AppDocumentRecord[];
+  activeProfile?: TeacherProfile;
+  activeSchool?: SchoolData;
+  activeAcademicSetting?: AcademicSetting;
+  activeContext?: ActiveContext;
+  activeCP?: CPData;
+  activeTP?: TPData;
+  activeATP?: ATPData;
 }
 
 export interface AppStorageState {

@@ -211,6 +211,13 @@ export function getProfileWorkspace(profileId: string): ProfileWorkspaceData {
     tp,
     atp,
     documents: state.documents || [],
+    activeProfile: profile,
+    activeSchool: school,
+    activeAcademicSetting: academicSetting,
+    activeContext: context,
+    activeCP: cp,
+    activeTP: tp,
+    activeATP: atp,
   };
 }
 
