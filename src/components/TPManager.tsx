@@ -15,14 +15,17 @@ import {
   RefreshCw,
   Tag,
   Wand2,
+  ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react';
-import { TPData, TPItem, CPData, AcademicSetting, TeacherProfile } from '../types';
+import { TPData, TPItem, CPData, AcademicSetting, TeacherProfile, ActiveContext } from '../types';
 import { P3_DIMENSIONS } from '../data/curriculumDefaults';
 import { generateTPWithAI, refineTextWithAI } from '../services/aiService';
 
 interface TPManagerProps {
   tp: TPData;
   cp: CPData;
+  context: ActiveContext;
   academicSetting: AcademicSetting;
   profile: TeacherProfile;
   onSaveTP: (tp: TPData) => void;
@@ -33,6 +36,7 @@ interface TPManagerProps {
 export const TPManager: React.FC<TPManagerProps> = ({
   tp,
   cp,
+  context,
   academicSetting,
   profile,
   onSaveTP,
@@ -57,6 +61,14 @@ export const TPManager: React.FC<TPManagerProps> = ({
     (cp.generalDescription && cp.generalDescription.trim().length > 0) ||
     (cp.elements && cp.elements.length > 0);
 
+  // Integrity check: CP changed after TP was created
+  const isCPOutdated =
+    hasCP &&
+    items.length > 0 &&
+    tp.basedOnCpUpdatedAt &&
+    cp.updatedAt &&
+    new Date(cp.updatedAt).getTime() > new Date(tp.basedOnCpUpdatedAt).getTime() + 1000;
+
   // Handle AI Generate TP from CP
   const handleGenerateAI = async () => {
     if (!hasCP) {
@@ -80,10 +92,10 @@ export const TPManager: React.FC<TPManagerProps> = ({
       const generated = await generateTPWithAI({
         cpGeneral: cp.generalDescription,
         cpElements: cp.elements || [],
-        subject: academicSetting.subject,
-        grade: academicSetting.grade,
-        phase: academicSetting.phase,
-        curriculum: academicSetting.curriculum,
+        subject: context.subject,
+        grade: context.grade,
+        phase: context.phase,
+        curriculum: context.curriculum,
         count: 4,
       });
 
@@ -93,6 +105,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
         ...tp,
         academicSettingId: academicSetting.id,
         items: generated,
+        basedOnCpUpdatedAt: cp.updatedAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       onSaveTP(updated);
@@ -109,6 +122,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
       ...tp,
       academicSettingId: academicSetting.id,
       items: items.map((item, idx) => ({ ...item, order: idx + 1 })),
+      basedOnCpUpdatedAt: cp.updatedAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     onSaveTP(updated);
@@ -146,7 +160,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
 
   const handleOpenAdd = () => {
     const nextNum = items.length + 1;
-    const gradeNum = academicSetting.grade.replace(/[^0-9]/g, '') || '4';
+    const gradeNum = context.grade.replace(/[^0-9]/g, '') || '4';
     setCurrentItem({
       id: `tp-${Date.now()}`,
       code: `TP ${gradeNum}.${nextNum}`,
@@ -206,7 +220,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
         text: currentItem.statement,
         instruction:
           'Sempurnakan kalimat Tujuan Pembelajaran (TP) ini menggunakan formula: Peserta didik mampu [Kompetensi/KKO] [Lingkup Materi] melalui [Konteks/Metode] dengan [Kriteria/Tepat].',
-        context: `${academicSetting.subject} ${academicSetting.grade} (${academicSetting.phase})`,
+        context: `${context.subject} ${context.grade} (${context.phase})`,
       });
       setCurrentItem({ ...currentItem, statement: refined });
     } catch (err: unknown) {
@@ -224,7 +238,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
         </div>
         <h3 className="text-lg font-bold text-slate-900">Data Capaian Pembelajaran (CP) Belum Ada</h3>
         <p className="text-sm text-slate-600 max-w-md mx-auto">
-          Sesuai prinsip kurikulum dan ketentuan aplikasi, Tujuan Pembelajaran (TP) diturunkan secara langsung dari Capaian Pembelajaran (CP).
+          Sesuai prinsip kurikulum dan integritas alur kerja, Tujuan Pembelajaran (TP) wajib diturunkan secara langsung dari Capaian Pembelajaran (CP) tersimpan.
         </p>
         <button
           onClick={onBackToCP}
@@ -239,6 +253,21 @@ export const TPManager: React.FC<TPManagerProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Integrity Alert if CP was modified */}
+      {isCPOutdated && (
+        <div className="bg-amber-50 border border-amber-300 p-4 rounded-2xl flex items-start gap-3 text-amber-900 text-xs">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <h4 className="font-bold text-sm text-amber-950">
+              Pembaruan Terdeteksi pada Capaian Pembelajaran (CP)
+            </h4>
+            <p className="text-amber-800">
+              Data CP telah diperbarui setelah daftar TP ini dibuat. Anda dapat meninjau butir TP di bawah atau klik tombol <strong>"Generate TP dari CP (AI)"</strong> untuk menyelaraskan kembali perumusan tujuan secara otomatis.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header Info */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -250,7 +279,7 @@ export const TPManager: React.FC<TPManagerProps> = ({
               <h3 className="text-lg font-bold text-slate-900">Perumusan Tujuan Pembelajaran (TP)</h3>
             </div>
             <p className="text-sm text-slate-500 mt-1">
-              Rumuskan butir-butir Tujuan Pembelajaran yang diturunkan dari Capaian Pembelajaran (CP) tersimpan untuk <strong>{academicSetting.subject}</strong> ({academicSetting.grade}).
+              Rumuskan butir-butir Tujuan Pembelajaran yang diturunkan dari Capaian Pembelajaran (CP) tersimpan untuk <strong>{context.subject}</strong> ({context.grade} - {context.phase}).
             </p>
           </div>
 
@@ -282,14 +311,18 @@ export const TPManager: React.FC<TPManagerProps> = ({
         )}
       </div>
 
-      {/* Source CP Reference Dropdown / Accordion */}
+      {/* Source CP Reference Card */}
       <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/80 space-y-2 text-xs text-slate-700">
         <div className="flex items-center justify-between font-bold text-slate-800 uppercase tracking-wider text-[11px]">
           <span className="flex items-center gap-1.5 text-blue-800">
             <BookOpen className="w-4 h-4 text-blue-600" />
-            <span>Rujukan CP Tersimpan (Fase {academicSetting.phase})</span>
+            <span>Rujukan CP Tersimpan ({context.phase})</span>
           </span>
-          <span className="text-slate-400 font-normal">Dasar Penurunan TP</span>
+          {cp.source && (
+            <span className="text-[11px] font-semibold text-slate-500 truncate max-w-xs">
+              {cp.source.title}
+            </span>
+          )}
         </div>
         <p className="text-slate-600 leading-relaxed italic bg-white p-3 rounded-xl border border-slate-200/60">
           "{cp.generalDescription || 'Elemen tertera pada CP tersimpan.'}"

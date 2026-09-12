@@ -17,8 +17,9 @@ import {
   HelpCircle,
   FileCheck2,
   Wand2,
+  AlertTriangle,
 } from 'lucide-react';
-import { ATPData, ATPItem, TPData, CPData, AcademicSetting, TeacherProfile } from '../types';
+import { ATPData, ATPItem, TPData, CPData, AcademicSetting, TeacherProfile, ActiveContext } from '../types';
 import { generateATPWithAI, refineTextWithAI } from '../services/aiService';
 import { P3_DIMENSIONS } from '../data/curriculumDefaults';
 
@@ -26,6 +27,7 @@ interface ATPManagerProps {
   atp: ATPData;
   tp: TPData;
   cp: CPData;
+  context: ActiveContext;
   academicSetting: AcademicSetting;
   profile: TeacherProfile;
   onSaveATP: (atp: ATPData) => void;
@@ -37,6 +39,7 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
   atp,
   tp,
   cp,
+  context,
   academicSetting,
   profile,
   onSaveATP,
@@ -62,6 +65,14 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
   const hasTP = tp.items && tp.items.length > 0;
   const totalJP = items.reduce((acc, curr) => acc + (Number(curr.jp) || 0), 0);
 
+  // Integrity Check: TP was modified after ATP was formed
+  const isTPOutdated =
+    hasTP &&
+    items.length > 0 &&
+    atp.basedOnTpUpdatedAt &&
+    tp.updatedAt &&
+    new Date(tp.updatedAt).getTime() > new Date(atp.basedOnTpUpdatedAt).getTime() + 1000;
+
   // Handle AI Generate ATP from TP
   const handleGenerateAI = async () => {
     if (!hasTP) {
@@ -83,12 +94,12 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
       const generated = await generateATPWithAI({
         tps: tp.items,
         cpGeneral: cp.generalDescription,
-        subject: academicSetting.subject,
-        grade: academicSetting.grade,
-        phase: academicSetting.phase,
-        semester: academicSetting.semester,
-        academicYear: academicSetting.academicYear,
-        totalHoursPerWeek: academicSetting.totalHoursPerWeek || 5,
+        subject: context.subject,
+        grade: context.grade,
+        phase: context.phase,
+        semester: context.semester,
+        academicYear: context.academicYear,
+        totalHoursPerWeek: context.totalHoursPerWeek || 5,
       });
 
       const formattedItems: ATPItem[] = generated.items.map((item, idx) => ({
@@ -101,7 +112,7 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
         p3Dimensions: item.p3Dimensions || ['Bernalar Kritis'],
         assessmentPlan: item.assessmentPlan || 'Formatif: Unjuk Kerja; Sumatif: Tes Tertulis',
         glossary: item.glossary || '',
-        resources: item.resources || 'Buku Guru dan Buku Siswa Kemendikbudristek',
+        resources: item.resources || 'Buku Guru dan Buku Siswa Kemendikdasmen',
       }));
 
       setRationale(generated.rationale);
@@ -113,6 +124,8 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
         academicSettingId: academicSetting.id,
         rationale: generated.rationale,
         items: formattedItems,
+        totalJP: formattedItems.reduce((acc, curr) => acc + (Number(curr.jp) || 0), 0),
+        basedOnTpUpdatedAt: tp.updatedAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
       onSaveATP(updated);
@@ -130,6 +143,8 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
       academicSettingId: academicSetting.id,
       rationale,
       items: items.map((item, idx) => ({ ...item, stepNumber: idx + 1 })),
+      totalJP,
+      basedOnTpUpdatedAt: tp.updatedAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     onSaveATP(updated);
@@ -167,17 +182,18 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
   const handleOpenAdd = () => {
     const nextStep = items.length + 1;
     const firstTP = tp.items[0];
+    const gradeNum = context.grade.replace(/[^0-9]/g, '') || '4';
     setCurrentItem({
       id: `atp-${Date.now()}`,
       stepNumber: nextStep,
-      tpCode: firstTP?.code || `TP 4.${nextStep}`,
+      tpCode: firstTP?.code || `TP ${gradeNum}.${nextStep}`,
       tpStatement: firstTP?.statement || '',
       materialScope: firstTP?.contentScope || '',
       jp: 6,
       p3Dimensions: firstTP?.p3Dimensions || ['Bernalar Kritis', 'Mandiri'],
       assessmentPlan: 'Formatif: Pengamatan unjuk kerja; Sumatif: Penilaian akhir lingkup materi',
       glossary: '',
-      resources: 'Buku Siswa & Guru Kemendikbudristek',
+      resources: 'Buku Siswa & Guru Kemendikdasmen',
     });
     setIsEditing(true);
   };
@@ -218,7 +234,7 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
         text: rationale,
         instruction:
           'Sempurnakan penjelasan rasionalisasi alur tujuan pembelajaran ini agar profesional, berlandaskan prinsip pedagogis bertahap (mudah ke sukar/konkret ke abstrak).',
-        context: `${academicSetting.subject} ${academicSetting.grade}`,
+        context: `${context.subject} ${context.grade} (${context.phase})`,
       });
       setRationale(refined);
     } catch {
@@ -251,6 +267,21 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Integrity Alert if TP was modified */}
+      {isTPOutdated && (
+        <div className="bg-amber-50 border border-amber-300 p-4 rounded-2xl flex items-start gap-3 text-amber-900 text-xs">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <h4 className="font-bold text-sm text-amber-950">
+              Pembaruan Terdeteksi pada Daftar Tujuan Pembelajaran (TP)
+            </h4>
+            <p className="text-amber-800">
+              Daftar TP telah diperbarui setelah penyusunan matriks ATP ini. Anda dapat meninjau langkah alur di bawah atau klik tombol <strong>"Susun ATP dari TP (AI)"</strong> untuk menyelaraskan ulang alur secara otomatis.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Step Header */}
       <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -262,7 +293,7 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
               <h3 className="text-lg font-bold text-slate-900">Penyusunan Alur Tujuan Pembelajaran (ATP)</h3>
             </div>
             <p className="text-sm text-slate-500 mt-1">
-              Petakan alur pengurutan materi, estimasi Jam Pelajaran (JP), asesmen, dan kata kunci glosarium untuk <strong>{academicSetting.subject}</strong> ({academicSetting.grade} - Semester {academicSetting.semester}).
+              Petakan alur pengurutan materi, estimasi Jam Pelajaran (JP), asesmen, dan kata kunci glosarium untuk <strong>{context.subject}</strong> ({context.grade} - Semester {context.semester}).
             </p>
           </div>
 
@@ -448,8 +479,10 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
                   <td colSpan={6} className="p-3 text-right">
                     Total Alokasi Waktu Semester:
                   </td>
-                  <td className="p-3 text-center text-blue-900 font-extrabold">{totalJP} JP</td>
-                  <td></td>
+                  <td className="p-3 text-center bg-blue-50 text-blue-900 font-extrabold">
+                    {totalJP} JP
+                  </td>
+                  <td className="p-3"></td>
                 </tr>
               </tfoot>
             </table>
@@ -466,11 +499,11 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
             onClick={handleSave}
             className="px-5 py-2.5 rounded-xl text-sm font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 shadow-xs transition"
           >
-            Simpan Draft ATP
+            Simpan Matriks ATP
           </button>
           {saveNotice && (
             <span className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
-              <Check className="w-4 h-4 text-emerald-600" /> Matriks ATP tersimpan
+              <Check className="w-4 h-4 text-emerald-600" /> Data ATP tersimpan
             </span>
           )}
         </div>
@@ -481,18 +514,18 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
           onClick={handleSaveAndNext}
           className="w-full sm:w-auto flex items-center justify-center gap-2 bg-blue-900 hover:bg-blue-950 text-white py-2.5 px-6 rounded-xl text-sm font-semibold shadow-sm transition cursor-pointer"
         >
-          <span>Lanjut ke 06 Ekspor Administrasi (.docx)</span>
+          <span>Simpan & Lanjut ke 06 Ekspor Administrasi (.docx)</span>
           <ArrowRight className="w-4 h-4" />
         </button>
       </div>
 
-      {/* MODAL: Edit/Add ATP Step */}
+      {/* MODAL: Add / Edit ATP Step */}
       {isEditing && currentItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-900">
-                Edit Langkah Alur Tujuan Pembelajaran
+                {currentItem.tpStatement ? 'Edit Langkah ATP' : 'Tambah Langkah ATP'}
               </h3>
               <button
                 onClick={() => setIsEditing(false)}
@@ -502,8 +535,23 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSaveItemModal} className="space-y-3.5">
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={handleSaveItemModal} className="space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Urutan Ke
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={currentItem.stepNumber}
+                    onChange={(e) =>
+                      setCurrentItem({ ...currentItem, stepNumber: parseInt(e.target.value, 10) || 1 })
+                    }
+                    className="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
+                  />
+                </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     Kode TP
@@ -518,12 +566,11 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    Alokasi Waktu (JP)
+                    Alokasi JP
                   </label>
                   <input
                     type="number"
                     min="1"
-                    max="60"
                     required
                     value={currentItem.jp}
                     onChange={(e) =>
@@ -536,7 +583,7 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Rumusan Tujuan Pembelajaran (TP)
+                  Rumusan Tujuan Pembelajaran <span className="text-rose-500">*</span>
                 </label>
                 <textarea
                   rows={2}
@@ -547,39 +594,59 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Lingkup Materi
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Materi pokok..."
+                    value={currentItem.materialScope}
+                    onChange={(e) =>
+                      setCurrentItem({ ...currentItem, materialScope: e.target.value })
+                    }
+                    className="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Glosarium / Kata Kunci
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Kata kunci penting..."
+                    value={currentItem.glossary}
+                    onChange={(e) => setCurrentItem({ ...currentItem, glossary: e.target.value })}
+                    className="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Lingkup Materi
+                  Rencana Asesmen (Awal / Formatif / Sumatif)
                 </label>
                 <input
                   type="text"
-                  value={currentItem.materialScope}
-                  onChange={(e) => setCurrentItem({ ...currentItem, materialScope: e.target.value })}
+                  placeholder="Formatif: Penugasan; Sumatif: Tes..."
+                  value={currentItem.assessmentPlan}
+                  onChange={(e) =>
+                    setCurrentItem({ ...currentItem, assessmentPlan: e.target.value })
+                  }
                   className="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Rencana Asesmen (Awal, Formatif, Sumatif)
-                </label>
-                <textarea
-                  rows={2}
-                  value={currentItem.assessmentPlan}
-                  onChange={(e) => setCurrentItem({ ...currentItem, assessmentPlan: e.target.value })}
-                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600 leading-relaxed"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Glosarium / Kata Kunci
+                  Sumber / Media Belajar
                 </label>
                 <input
                   type="text"
-                  placeholder="Contoh: Ide Pokok, Paragraf Narasi, Kalimat Utama"
-                  value={currentItem.glossary || ''}
-                  onChange={(e) => setCurrentItem({ ...currentItem, glossary: e.target.value })}
+                  placeholder="Buku Siswa & Guru..."
+                  value={currentItem.resources || ''}
+                  onChange={(e) => setCurrentItem({ ...currentItem, resources: e.target.value })}
                   className="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
                 />
               </div>
@@ -596,7 +663,7 @@ export const ATPManager: React.FC<ATPManagerProps> = ({
                   type="submit"
                   className="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 shadow-sm transition"
                 >
-                  Simpan Perubahan
+                  Simpan Langkah
                 </button>
               </div>
             </form>

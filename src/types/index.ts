@@ -34,10 +34,39 @@ export interface AcademicSetting {
   semester: '1 (Ganjil)' | '2 (Genap)';
   level: 'SD' | 'SMP' | 'SMA' | 'SMK';
   grade: string; // e.g. "Kelas 4"
-  phase: string; // e.g. "Fase B"
+  phase: string; // e.g. "Fase B" (derived from grade)
   subject: string; // e.g. "Bahasa Indonesia"
   totalHoursPerWeek?: number; // e.g. 4 JP / minggu
   updatedAt: string;
+}
+
+/**
+ * Single source of truth for the active working context
+ * used across all downstream steps (CP, TP, ATP, AdminDocs, AI prompts).
+ */
+export interface ActiveContext {
+  profileId: string;
+  schoolId: string;
+  curriculum: string;
+  academicYear: string;
+  semester: '1 (Ganjil)' | '2 (Genap)' | string;
+  level: 'SD' | 'SMP' | 'SMA' | 'SMK' | string;
+  grade: string;
+  phase: string;
+  subject: string;
+  totalHoursPerWeek?: number;
+}
+
+export type CPVerificationStatus = 'verified' | 'unverified' | 'local_reference';
+
+export interface CPSource {
+  title: string;
+  institution: string;
+  documentYear?: string;
+  url?: string;
+  page?: string;
+  retrievedAt: string;
+  verificationStatus: CPVerificationStatus;
 }
 
 export interface CPElem {
@@ -51,7 +80,9 @@ export interface CPData {
   academicSettingId: string;
   generalDescription: string;
   elements: CPElem[];
+  source?: CPSource;
   aiNotes?: string;
+  lastEditedAt?: string;
   updatedAt: string;
 }
 
@@ -70,6 +101,7 @@ export interface TPData {
   id: string;
   academicSettingId: string;
   items: TPItem[];
+  basedOnCpUpdatedAt?: string;
   updatedAt: string;
 }
 
@@ -93,6 +125,7 @@ export interface ATPData {
   rationale?: string; // Rasionalisasi Alur Pembelajaran
   items: ATPItem[];
   totalJP: number;
+  basedOnTpUpdatedAt?: string;
   updatedAt: string;
 }
 
@@ -109,6 +142,7 @@ export interface ProfileWorkspaceData {
   profile: TeacherProfile;
   school: SchoolData;
   academicSetting: AcademicSetting;
+  context: ActiveContext;
   cp: CPData;
   tp: TPData;
   atp: ATPData;

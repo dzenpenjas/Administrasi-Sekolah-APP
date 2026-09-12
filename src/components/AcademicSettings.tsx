@@ -8,6 +8,7 @@ import {
   Layers,
   GraduationCap,
   Clock,
+  Info,
   Sparkles,
 } from 'lucide-react';
 import { AcademicSetting, TeacherProfile } from '../types';
@@ -18,6 +19,7 @@ import {
   EDUCATION_LEVELS,
   GRADE_PHASE_MAP,
   SUBJECT_OPTIONS,
+  getPhaseFromGrade,
 } from '../data/curriculumDefaults';
 
 interface AcademicSettingsProps {
@@ -33,13 +35,21 @@ export const AcademicSettings: React.FC<AcademicSettingsProps> = ({
   onSaveSetting,
   onNextStep,
 }) => {
-  const [formData, setFormData] = useState<AcademicSetting>({ ...setting });
+  const initialPhase = getPhaseFromGrade(setting.level || 'SD', setting.grade || 'Kelas 1');
+  const [formData, setFormData] = useState<AcademicSetting>({
+    ...setting,
+    phase: initialPhase,
+  });
   const [isCustomSubject, setIsCustomSubject] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
 
   // Sync state if prop changes (e.g. on profile switch)
   useEffect(() => {
-    setFormData({ ...setting });
+    const derivedPhase = getPhaseFromGrade(setting.level || 'SD', setting.grade || 'Kelas 1');
+    setFormData({
+      ...setting,
+      phase: derivedPhase,
+    });
     const currentSubjectList = SUBJECT_OPTIONS[setting.level || 'SD'] || [];
     if (setting.subject && !currentSubjectList.includes(setting.subject)) {
       setIsCustomSubject(true);
@@ -48,29 +58,29 @@ export const AcademicSettings: React.FC<AcademicSettingsProps> = ({
     }
   }, [setting]);
 
-  // Handle Level Change (adjust grade and phase accordingly)
+  // Handle Level Change (automatically recalculates grade, derived phase, and default subject)
   const handleLevelChange = (level: 'SD' | 'SMP' | 'SMA' | 'SMK') => {
     const defaultGradeInfo = GRADE_PHASE_MAP[level]?.[0] || { grade: 'Kelas 1', phase: 'Fase A', level };
+    const derivedPhase = getPhaseFromGrade(level, defaultGradeInfo.grade);
     const defaultSubject = SUBJECT_OPTIONS[level]?.[0] || 'Bahasa Indonesia';
 
     setFormData((prev) => ({
       ...prev,
       level,
       grade: defaultGradeInfo.grade,
-      phase: defaultGradeInfo.phase,
+      phase: derivedPhase,
       subject: defaultSubject,
     }));
     setIsCustomSubject(false);
   };
 
-  // Handle Grade Change (automatically set appropriate Fase)
+  // Handle Grade Change (strictly auto-derives Phase)
   const handleGradeChange = (grade: string) => {
-    const levelGrades = GRADE_PHASE_MAP[formData.level || 'SD'] || [];
-    const matched = levelGrades.find((g) => g.grade === grade);
+    const derivedPhase = getPhaseFromGrade(formData.level || 'SD', grade);
     setFormData((prev) => ({
       ...prev,
       grade,
-      phase: matched?.phase || prev.phase,
+      phase: derivedPhase,
     }));
   };
 
@@ -81,8 +91,10 @@ export const AcademicSettings: React.FC<AcademicSettingsProps> = ({
       return;
     }
 
-    const updated = {
+    const derivedPhase = getPhaseFromGrade(formData.level || 'SD', formData.grade || 'Kelas 1');
+    const updated: AcademicSetting = {
       ...formData,
+      phase: derivedPhase,
       updatedAt: new Date().toISOString(),
     };
     onSaveSetting(updated);
@@ -110,8 +122,8 @@ export const AcademicSettings: React.FC<AcademicSettingsProps> = ({
           <h3 className="text-lg font-bold text-slate-900">Pengaturan Data Pembelajaran</h3>
         </div>
         <p className="text-sm text-slate-500">
-          Tentukan parameter kurikulum, tahun ajaran, kelas, fase, dan mata pelajaran yang diampu oleh <strong>{profile.name}</strong>.
-          Data ini menjadi dasar analisis AI dalam menyusun CP, TP, dan ATP.
+          Tentukan parameter kurikulum, tahun ajaran, kelas, dan mata pelajaran yang diampu oleh <strong>{profile.name}</strong>.
+          Fase dihitung otomatis berdasarkan jenjang dan kelas sesuai standar Kurikulum Merdeka.
         </p>
       </div>
 
@@ -183,7 +195,7 @@ export const AcademicSettings: React.FC<AcademicSettingsProps> = ({
             </div>
           </div>
 
-          {/* Row 2: Jenjang, Kelas & Fase */}
+          {/* Row 2: Jenjang, Kelas & Derived Phase */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5 flex items-center gap-1.5">
@@ -207,7 +219,7 @@ export const AcademicSettings: React.FC<AcademicSettingsProps> = ({
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-blue-600" />
-                <span>Kelas</span>
+                <span>Tingkat / Kelas</span>
               </label>
               <select
                 id="select-grade"
@@ -223,19 +235,28 @@ export const AcademicSettings: React.FC<AcademicSettingsProps> = ({
               </select>
             </div>
 
+            {/* Read-Only Derived Phase */}
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-blue-600" />
-                <span>Fase</span>
+                <span>Fase Capaian (Otomatis)</span>
               </label>
-              <input
-                id="input-phase"
-                type="text"
-                value={formData.phase}
-                onChange={(e) => setFormData({ ...formData, phase: e.target.value })}
-                className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600 bg-slate-50 font-semibold text-blue-900"
-                placeholder="Contoh: Fase B"
-              />
+              <div
+                id="display-derived-phase"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-blue-200 bg-blue-50/70 text-blue-950 font-bold text-sm flex items-center justify-between"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                  {formData.phase}
+                </span>
+                <span className="text-[11px] font-semibold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-md">
+                  Derived
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+                <Info className="w-3 h-3 text-slate-400 shrink-0" />
+                <span>Dihitung otomatis: {formData.level} {formData.grade} → {formData.phase}</span>
+              </p>
             </div>
           </div>
 

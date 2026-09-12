@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   WorkflowStepId,
   AppDataStore,
@@ -11,7 +11,7 @@ import {
 } from './types';
 import {
   getAppData,
-  saveAppData,
+  getProfileWorkspace,
   saveProfile,
   deleteProfile,
   saveSchool,
@@ -41,85 +41,20 @@ export function App() {
     setDataStore(getAppData());
   }, []);
 
-  // Active profile
-  const activeProfile =
-    dataStore.profiles.find((p) => p.id === dataStore.activeProfileId) ||
-    dataStore.profiles[0] || {
-      id: 'prof-default',
-      name: 'Guru',
-      status: 'PNS',
-      defaultSubject: 'Bahasa Indonesia',
-      defaultLevel: 'SD',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+  // Compute the full workspace and active context using getProfileWorkspace
+  const workspace = useMemo(() => {
+    return getProfileWorkspace(dataStore.activeProfileId);
+  }, [dataStore]);
 
-  // Active School for this profile
-  const activeSchool =
-    dataStore.schools.find((s) => s.id === activeProfile.schoolId) ||
-    dataStore.schools[0] || {
-      id: 'sch-1',
-      name: 'SD Negeri 01 Nusantara',
-      npsn: '20234567',
-      address: 'Jl. Merdeka Pendidikan No. 45',
-      village: 'Sukamaju',
-      district: 'Cerdas',
-      regency: 'Kabupaten Gemilang',
-      province: 'Jawa Barat',
-      principalName: 'Dra. Hj. Siti Rahmawati, M.Pd.',
-      principalNip: '19680512 199303 2 004',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-  // Active Academic Setting for this profile
-  const activeAcademicSetting =
-    dataStore.academicSettings.find((a) => a.profileId === activeProfile.id) || {
-      id: `acad-${activeProfile.id}`,
-      profileId: activeProfile.id,
-      curriculum: 'Kurikulum Merdeka',
-      academicYear: '2025/2026',
-      semester: '1 (Ganjil)',
-      level: activeProfile.defaultLevel || 'SD',
-      grade: 'Kelas 4',
-      phase: 'Fase B',
-      subject: activeProfile.defaultSubject || 'Bahasa Indonesia',
-      totalHoursPerWeek: 5,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-  // Active CP for this academic setting
-  const activeCP =
-    dataStore.cps.find((c) => c.academicSettingId === activeAcademicSetting.id) || {
-      id: `cp-${activeAcademicSetting.id}`,
-      academicSettingId: activeAcademicSetting.id,
-      generalDescription: '',
-      elements: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-  // Active TP for this academic setting
-  const activeTP =
-    dataStore.tps.find((t) => t.academicSettingId === activeAcademicSetting.id) || {
-      id: `tp-${activeAcademicSetting.id}`,
-      academicSettingId: activeAcademicSetting.id,
-      items: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-  // Active ATP for this academic setting
-  const activeATP =
-    dataStore.atps.find((a) => a.academicSettingId === activeAcademicSetting.id) || {
-      id: `atp-${activeAcademicSetting.id}`,
-      academicSettingId: activeAcademicSetting.id,
-      rationale: '',
-      items: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+  const {
+    activeProfile,
+    activeSchool,
+    activeAcademicSetting,
+    activeCP,
+    activeTP,
+    activeATP,
+    activeContext,
+  } = workspace;
 
   // Handlers
   const handleSelectProfile = (id: string) => {
@@ -214,6 +149,7 @@ export function App() {
           {currentStep === 'cp' && (
             <CPManager
               cp={activeCP}
+              context={activeContext}
               academicSetting={activeAcademicSetting}
               profile={activeProfile}
               onSaveCP={handleSaveCP}
@@ -225,6 +161,7 @@ export function App() {
             <TPManager
               tp={activeTP}
               cp={activeCP}
+              context={activeContext}
               academicSetting={activeAcademicSetting}
               profile={activeProfile}
               onSaveTP={handleSaveTP}
@@ -238,6 +175,7 @@ export function App() {
               atp={activeATP}
               tp={activeTP}
               cp={activeCP}
+              context={activeContext}
               academicSetting={activeAcademicSetting}
               profile={activeProfile}
               onSaveATP={handleSaveATP}
@@ -264,10 +202,10 @@ export function App() {
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
-            <strong>Administrasi Guru AI</strong> — MVP Tahap 1 (Alur: Profil → CP → TP → ATP → Administrasi)
+            <strong>Administrasi Guru AI</strong> — MVP Fondasi Tahap 1 (Alur Berkesinambungan: Profil → CP → TP → ATP → Dokumen)
           </div>
           <div className="text-[11px] text-slate-400">
-            Penyimpanan lokal di peramban (localStorage) • Dilengkapi fitur PWA & Ekspor Word (.docx)
+            Konteks Terpusat (ActiveContext) • Fase Otomatis • Sumber CP Terverifikasi • Ekspor Word (.docx)
           </div>
         </div>
       </footer>
