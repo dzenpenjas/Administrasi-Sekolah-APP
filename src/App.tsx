@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   WorkflowStepId,
   AppDataStore,
@@ -8,6 +8,7 @@ import {
   CPData,
   TPData,
   ATPData,
+  AdministrationWorkspace,
 } from './types';
 import {
   getAppData,
@@ -20,6 +21,10 @@ import {
   saveTP,
   saveATP,
   setActiveProfileId,
+  setActiveWorkspaceId,
+  createWorkspace,
+  duplicateWorkspace,
+  deleteWorkspace,
 } from './services/storage';
 import { Header } from './components/Header';
 import { WorkflowStepper } from './components/WorkflowStepper';
@@ -30,11 +35,20 @@ import { TPManager } from './components/TPManager';
 import { ATPManager } from './components/ATPManager';
 import { AdminDocsExport } from './components/AdminDocsExport';
 import { BackupModal } from './components/BackupModal';
+import { Plus, Copy, Trash2, X, FolderPlus } from 'lucide-react';
+import { GRADE_PHASE_MAP, SUBJECT_OPTIONS } from './data/curriculumDefaults';
 
 export function App() {
   const [dataStore, setDataStore] = useState<AppDataStore>(getAppData());
   const [currentStep, setCurrentStep] = useState<WorkflowStepId>('profile');
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isNewWorkspaceModalOpen, setIsNewWorkspaceModalOpen] = useState(false);
+
+  // New Workspace form state
+  const [newWsGrade, setNewWsGrade] = useState('Kelas 1');
+  const [newWsSubject, setNewWsSubject] = useState('Pendidikan Jasmani, Olahraga, dan Kesehatan (PJOK)');
+  const [newWsSemester, setNewWsSemester] = useState<'1 (Ganjil)' | '2 (Genap)'>('1 (Ganjil)');
+  const [newWsYear, setNewWsYear] = useState('2026/2027');
 
   // Reload data from storage
   const refreshData = useCallback(() => {
@@ -42,11 +56,12 @@ export function App() {
   }, []);
 
   // Compute the full workspace and active context using getProfileWorkspace
-  const workspace = useMemo(() => {
-    return getProfileWorkspace(dataStore.activeProfileId);
+  const currentWorkspaceData = useMemo(() => {
+    return getProfileWorkspace(dataStore.activeProfileId, dataStore.activeWorkspaceId);
   }, [dataStore]);
 
   const {
+    workspace: activeWorkspace,
     profile: activeProfile,
     school: activeSchool,
     academicSetting: activeAcademicSetting,
@@ -54,9 +69,15 @@ export function App() {
     tp: activeTP,
     atp: activeATP,
     context: activeContext,
-  } = workspace;
+    allWorkspaces = [],
+    allWorkspacesForProfile = [],
+  } = currentWorkspaceData;
 
-  // Handlers
+  const currentWorkspacesList = allWorkspacesForProfile && allWorkspacesForProfile.length > 0
+    ? allWorkspacesForProfile
+    : allWorkspaces;
+
+  // Handlers for Profile
   const handleSelectProfile = (id: string) => {
     setActiveProfileId(id);
     refreshData();
@@ -72,13 +93,45 @@ export function App() {
     refreshData();
   };
 
+  // Handlers for School
   const handleSaveSchool = (school: SchoolData) => {
     saveSchool(school);
     refreshData();
   };
 
-  const handleSaveAcademicSetting = (setting: AcademicSetting) => {
-    saveAcademicSetting(setting);
+  // Handlers for Workspaces
+  const handleSelectWorkspace = (wsId: string) => {
+    setActiveWorkspaceId(wsId);
+    refreshData();
+  };
+
+  const handleCreateNewWorkspace = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWsSubject.trim()) {
+      alert('Mata pelajaran tidak boleh kosong.');
+      return;
+    }
+
+    createWorkspace({
+      profileId: activeProfile.id,
+      schoolId: activeSchool.id,
+      setting: {
+        level: activeProfile.defaultLevel || 'SD',
+        grade: newWsGrade,
+        subject: newWsSubject.trim(),
+        semester: newWsSemester,
+        academicYear: newWsYear,
+      },
+    });
+
+    setIsNewWorkspaceModalOpen(false);
+    refreshData();
+    setCurrentStep('academic');
+  };
+
+  // Handlers for Academic Setting & Documents
+  const handleSaveAcademicSetting = (setting: AcademicSetting, customWorkspaceName?: string) => {
+    saveAcademicSetting(setting, customWorkspaceName);
     refreshData();
   };
 
@@ -97,14 +150,21 @@ export function App() {
     refreshData();
   };
 
+  const availableGrades = GRADE_PHASE_MAP[activeProfile.defaultLevel || 'SD'] || [];
+  const availableSubjects = SUBJECT_OPTIONS[activeProfile.defaultLevel || 'SD'] || [];
+
   return (
     <div className="min-h-screen bg-slate-100/70 text-slate-800 flex flex-col font-sans selection:bg-blue-100 selection:text-blue-900">
       {/* Top Application Header */}
       <Header
         activeProfile={activeProfile}
         school={activeSchool}
-        profiles={dataStore.profiles}
+        profiles={dataStore.profiles || []}
+        workspaces={currentWorkspacesList || []}
+        activeWorkspaceId={activeWorkspace?.id || dataStore.activeWorkspaceId || ''}
         onSelectProfile={handleSelectProfile}
+        onSelectWorkspace={handleSelectWorkspace}
+        onCreateWorkspaceClick={() => setIsNewWorkspaceModalOpen(true)}
         onOpenBackupModal={() => setIsBackupModalOpen(true)}
       />
 
@@ -116,6 +176,7 @@ export function App() {
           onSelectStep={(step) => setCurrentStep(step)}
           profile={activeProfile}
           school={activeSchool}
+          workspace={activeWorkspace}
           academicSetting={activeAcademicSetting}
           cp={activeCP}
           tp={activeTP}
@@ -141,6 +202,7 @@ export function App() {
             <AcademicSettings
               setting={activeAcademicSetting}
               profile={activeProfile}
+              workspace={activeWorkspace}
               onSaveSetting={handleSaveAcademicSetting}
               onNextStep={() => setCurrentStep('cp')}
             />
@@ -188,6 +250,7 @@ export function App() {
             <AdminDocsExport
               profile={activeProfile}
               school={activeSchool}
+              workspace={activeWorkspace}
               academicSetting={activeAcademicSetting}
               cp={activeCP}
               tp={activeTP}
@@ -202,13 +265,133 @@ export function App() {
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
-            <strong>Administrasi Guru AI</strong> — MVP Fondasi Tahap 1 (Alur Berkesinambungan: Profil → CP → TP → ATP → Dokumen)
+            <strong>Administrasi Guru AI</strong> — MVP Fondasi Administrasi Berkesinambungan (Profil → CP → TP → ATP → Dokumen)
           </div>
           <div className="text-[11px] text-slate-400">
-            Konteks Terpusat (ActiveContext) • Fase Otomatis • Sumber CP Terverifikasi • Ekspor Word (.docx)
+            Konteks Terpusat (ActiveContext) • Multi-Workspace Administrasi • Sumber CP Terverifikasi • Ekspor Word (.docx)
           </div>
         </div>
       </footer>
+
+      {/* Modal: Create New Administration Workspace */}
+      {isNewWorkspaceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center">
+                  <FolderPlus className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Buat Administrasi / Kelas Baru</h3>
+                  <p className="text-xs text-slate-500">Guru: <strong>{activeProfile.name}</strong></p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsNewWorkspaceModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 text-sm font-semibold cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateNewWorkspace} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Mata Pelajaran <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Contoh: PJOK / Bahasa Indonesia"
+                  value={newWsSubject}
+                  onChange={(e) => setNewWsSubject(e.target.value)}
+                  className="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
+                  list="suggested-subjects"
+                />
+                <datalist id="suggested-subjects">
+                  {availableSubjects.map((sub) => (
+                    <option key={sub} value={sub} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Kelas / Tingkat
+                  </label>
+                  <select
+                    value={newWsGrade}
+                    onChange={(e) => setNewWsGrade(e.target.value)}
+                    className="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-white cursor-pointer"
+                  >
+                    {availableGrades.map((g) => (
+                      <option key={g.grade} value={g.grade}>
+                        {g.grade} ({g.phase})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Semester
+                  </label>
+                  <select
+                    value={newWsSemester}
+                    onChange={(e) => setNewWsSemester(e.target.value as '1 (Ganjil)' | '2 (Genap)')}
+                    className="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-white cursor-pointer"
+                  >
+                    <option value="1 (Ganjil)">1 (Ganjil)</option>
+                    <option value="2 (Genap)">2 (Genap)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Tahun Ajaran
+                </label>
+                <select
+                  value={newWsYear}
+                  onChange={(e) => setNewWsYear(e.target.value)}
+                  className="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-white cursor-pointer"
+                >
+                  <option value="2026/2027">2026/2027</option>
+                  <option value="2025/2026">2025/2026</option>
+                  <option value="2024/2025">2024/2025</option>
+                </select>
+              </div>
+
+              <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-200/60 text-xs text-blue-900 space-y-1">
+                <div className="font-semibold">Nama Workspace yang Dibuat:</div>
+                <div className="font-bold text-blue-950">
+                  {newWsSubject || 'Mapel'} — {newWsGrade} — {newWsSemester.startsWith('1') ? 'Sem 1' : 'Sem 2'} — {newWsYear}
+                </div>
+                <p className="text-[11px] text-blue-700 mt-0.5">
+                  Setiap workspace memiliki CP, TP, ATP, dan dokumen mandiri tanpa tercampur dengan administrasi lainnya.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsNewWorkspaceModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-blue-900 hover:bg-blue-950 shadow-sm transition cursor-pointer"
+                >
+                  Buat Administrasi Baru
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Backup / Restore JSON Modal */}
       <BackupModal
@@ -219,4 +402,5 @@ export function App() {
     </div>
   );
 }
+
 export default App;

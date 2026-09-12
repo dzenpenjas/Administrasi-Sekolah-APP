@@ -26,6 +26,16 @@ export interface SchoolData {
   updatedAt: string;
 }
 
+export interface AdministrationWorkspace {
+  id: string;
+  profileId: string;
+  schoolId: string;
+  academicSettingId: string;
+  name: string; // e.g. "PJOK — Kelas 1 — Semester 1 — 2026/2027"
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AcademicSetting {
   id: string;
   profileId: string;
@@ -136,19 +146,25 @@ export interface AppDocumentRecord {
   status: 'completed' | 'draft' | 'future_sprint';
   lastGenerated?: string;
   fileName?: string;
+  academicSettingId?: string;
+  workspaceId?: string;
 }
 
 export interface ProfileWorkspaceData {
   profile: TeacherProfile;
   school: SchoolData;
+  workspace: AdministrationWorkspace;
   academicSetting: AcademicSetting;
   context: ActiveContext;
   cp: CPData;
   tp: TPData;
   atp: ATPData;
   documents: AppDocumentRecord[];
+  allWorkspaces: AdministrationWorkspace[];
+  allWorkspacesForProfile?: AdministrationWorkspace[];
   activeProfile?: TeacherProfile;
   activeSchool?: SchoolData;
+  activeWorkspace?: AdministrationWorkspace;
   activeAcademicSetting?: AcademicSetting;
   activeContext?: ActiveContext;
   activeCP?: CPData;
@@ -159,8 +175,10 @@ export interface ProfileWorkspaceData {
 export interface AppStorageState {
   version: number;
   activeProfileId: string;
+  activeWorkspaceId?: string;
   profiles: TeacherProfile[];
   schools: SchoolData[];
+  workspaces: AdministrationWorkspace[];
   academicSettings: AcademicSetting[];
   cps: CPData[];
   tps: TPData[];

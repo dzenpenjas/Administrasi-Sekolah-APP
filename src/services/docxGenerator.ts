@@ -428,7 +428,9 @@ export async function generateAndDownloadATPWord(options: GenerateATPWordOptions
     const blob = await Packer.toBlob(doc);
     const sanitizedMapel = (academicSetting.subject || 'Mapel').replace(/[^a-zA-Z0-9]/g, '_');
     const sanitizedGrade = (academicSetting.grade || 'Kelas').replace(/[^a-zA-Z0-9]/g, '_');
-    const fileName = `ATP_${sanitizedMapel}_${sanitizedGrade}_${school.name.replace(/[^a-zA-Z0-9]/g, '_')}.docx`;
+    const sanitizedPhase = (academicSetting.phase || 'Fase').replace(/[^a-zA-Z0-9]/g, '_');
+    const sanitizedYear = (academicSetting.academicYear || '2026-2027').replace(/[^a-zA-Z0-9]/g, '_');
+    const fileName = `ATP_${sanitizedMapel}_${sanitizedGrade}_${sanitizedPhase}_${sanitizedYear}.docx`;
 
     saveAs(blob, fileName);
     return true;

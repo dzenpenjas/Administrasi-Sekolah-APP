@@ -9,13 +9,14 @@ import {
   Building2,
   MapPin,
   ShieldCheck,
-  UserCheck,
-  GraduationCap,
+  Search,
   ArrowRight,
-  Sparkles,
+  Info,
+  CheckCircle2,
 } from 'lucide-react';
 import { TeacherProfile, SchoolData } from '../types';
-import { EDUCATION_LEVELS, SUBJECT_OPTIONS } from '../data/curriculumDefaults';
+import { EDUCATION_LEVELS } from '../data/curriculumDefaults';
+import { SchoolIdentityProvider, SchoolCandidate } from '../services/schoolProvider';
 
 interface ProfileManagerProps {
   profiles: TeacherProfile[];
@@ -63,6 +64,11 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
   const [isEditingSchool, setIsEditingSchool] = useState(false);
   const [schoolForm, setSchoolForm] = useState<SchoolData>({ ...activeSchool });
 
+  // School Search / Candidate Lookup State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SchoolCandidate[]>([]);
+  const [searchNotice, setSearchNotice] = useState<string | null>(null);
+
   const handleOpenAddProfile = () => {
     const newProfile: TeacherProfile = {
       id: `prof-${Date.now()}`,
@@ -98,6 +104,29 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
     setIsEditingProfile(false);
   };
 
+  const handleSearchSchool = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const result = SchoolIdentityProvider.searchSchool(searchQuery);
+    setSearchResults(result.candidates);
+    setSearchNotice(result.message);
+  };
+
+  const handleSelectCandidate = (cand: SchoolCandidate) => {
+    setSchoolForm((prev) => ({
+      ...prev,
+      name: cand.name,
+      npsn: cand.npsn,
+      address: cand.address,
+      village: cand.village,
+      district: cand.district,
+      regency: cand.regency,
+      province: cand.province,
+      principalName: cand.principalName,
+      principalNip: cand.principalNip,
+    }));
+    setSearchNotice(`Data dipilih dari: ${cand.source}. Silakan tinjau dan sesuaikan.`);
+  };
+
   const handleSaveSchoolSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!schoolForm.name.trim()) {
@@ -109,6 +138,9 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
       updatedAt: new Date().toISOString(),
     });
     setIsEditingSchool(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    setSearchNotice(null);
   };
 
   return (
@@ -124,7 +156,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
               <h3 className="text-lg font-bold text-slate-900">Manajemen Profil Guru & Sekolah</h3>
             </div>
             <p className="text-sm text-slate-500 mt-1">
-              Aplikasi mendukung multi-profil guru. Setiap dokumen yang dibuat akan otomatis menggunakan data profil dan sekolah yang aktif.
+              Data profil guru dan identitas sekolah bersifat bersama (shared) untuk semua administrasi pembelajaran yang dibuat oleh guru ini.
             </p>
           </div>
 
@@ -148,7 +180,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
               <User className="w-4 h-4 text-blue-600" />
               <span>Daftar Profil Guru ({profiles.length})</span>
             </h4>
-            <span className="text-xs text-slate-400">Klik kartu untuk memilih profil</span>
+            <span className="text-xs text-slate-400">Pilih guru untuk mengelola</span>
           </div>
 
           <div className="space-y-3">
@@ -192,7 +224,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                           <div>NIP: {p.nip || 'Belum diisi'}</div>
                           {p.nuptk && <div>NUPTK: {p.nuptk}</div>}
                           <div className="text-slate-600 font-medium pt-0.5">
-                            {p.defaultLevel} • {p.defaultSubject}
+                            Jenjang: {p.defaultLevel}
                           </div>
                         </div>
                       </div>
@@ -203,7 +235,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                       <button
                         id={`btn-edit-profile-${p.id}`}
                         onClick={() => handleOpenEditProfile(p)}
-                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition cursor-pointer"
                         title="Edit Profil Guru"
                       >
                         <Edit2 className="w-4 h-4" />
@@ -212,11 +244,11 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                         <button
                           id={`btn-delete-profile-${p.id}`}
                           onClick={() => {
-                            if (confirm(`Apakah Anda yakin ingin menghapus profil "${p.name}"?`)) {
+                            if (confirm(`Apakah Anda yakin ingin menghapus profil "${p.name}"? Seluruh administrasi profil ini akan terhapus.`)) {
                               onDeleteProfile(p.id);
                             }
                           }}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
                           title="Hapus Profil"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -243,7 +275,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                 setSchoolForm({ ...activeSchool });
                 setIsEditingSchool(true);
               }}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg transition cursor-pointer"
             >
               <Edit2 className="w-3.5 h-3.5" />
               <span>Ubah Data Sekolah</span>
@@ -260,11 +292,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
               <div className="flex items-start gap-2">
                 <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
                 <span>
-                  {activeSchool.address || 'Alamat sekolah'}
-                  {activeSchool.village ? `, Desa/Kel. ${activeSchool.village}` : ''}
-                  {activeSchool.district ? `, Kec. ${activeSchool.district}` : ''}
-                  {activeSchool.regency ? `, ${activeSchool.regency}` : ''}
-                  {activeSchool.province ? `, Prov. ${activeSchool.province}` : ''}
+                  {SchoolIdentityProvider.formatFullAddress(activeSchool)}
                 </span>
               </div>
 
@@ -279,7 +307,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
             </div>
 
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/60 text-[11px] text-slate-500">
-              💡 <em>Data kepala sekolah dan instansi ini otomatis menjadi bagian dari kop & pengesahan tanda tangan pada dokumen Word (ATP & lainnya).</em>
+              💡 <em>Data sekolah ini terikat secara otomatis pada dokumen administrasi dan kop/tanda tangan resmi.</em>
             </div>
           </div>
 
@@ -305,7 +333,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
               </h3>
               <button
                 onClick={() => setIsEditingProfile(false)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-semibold"
+                className="text-slate-400 hover:text-slate-600 text-sm font-semibold cursor-pointer"
               >
                 ✕
               </button>
@@ -405,7 +433,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Mata Pelajaran Utama
+                  Mata Pelajaran Utama (Default)
                 </label>
                 <input
                   id="input-teacher-subject"
@@ -421,14 +449,14 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsEditingProfile(false)}
-                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   id="btn-save-profile"
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 shadow-sm transition"
+                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 shadow-sm transition cursor-pointer"
                 >
                   Simpan Profil
                 </button>
@@ -438,21 +466,82 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
         </div>
       )}
 
-      {/* MODAL: Edit School Data */}
+      {/* MODAL: Edit School Data with SchoolIdentityProvider Lookup */}
       {isEditingSchool && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-base font-bold text-slate-900">Ubah Data Satuan Pendidikan & Kepala Sekolah</h3>
               <button
-                onClick={() => setIsEditingSchool(false)}
-                className="text-slate-400 hover:text-slate-600 text-sm font-semibold"
+                onClick={() => {
+                  setIsEditingSchool(false);
+                  setSearchResults([]);
+                  setSearchNotice(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 text-sm font-semibold cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleSaveSchoolSubmit} className="space-y-3.5">
+            {/* School Lookup Section */}
+            <div className="bg-blue-50/60 p-3.5 rounded-xl border border-blue-100 space-y-2">
+              <label className="block text-xs font-bold text-blue-950 uppercase flex items-center gap-1.5">
+                <Search className="w-3.5 h-3.5 text-blue-600" />
+                <span>Cari / Lengkapi Otomatis dari Direktori Sekolah</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Ketik nama sekolah atau NPSN (misal: SDN Karang Tengah, Menteng, Surabaya)..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleSearchSchool();
+                    }
+                  }}
+                  className="flex-1 text-xs px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-hidden focus:ring-2 focus:ring-blue-600"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleSearchSchool()}
+                  className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-semibold shrink-0 cursor-pointer"
+                >
+                  Cari
+                </button>
+              </div>
+
+              {searchNotice && (
+                <p className="text-[11px] text-blue-900 font-medium">{searchNotice}</p>
+              )}
+
+              {searchResults.length > 0 && (
+                <div className="space-y-1.5 pt-2 max-h-40 overflow-y-auto">
+                  {searchResults.map((cand, idx) => (
+                    <div
+                      key={idx}
+                      onClick={() => handleSelectCandidate(cand)}
+                      className="p-2.5 rounded-lg bg-white border border-blue-200 hover:border-blue-500 hover:bg-blue-50/50 cursor-pointer transition flex items-start justify-between gap-2"
+                    >
+                      <div>
+                        <div className="text-xs font-bold text-slate-900">{cand.name}</div>
+                        <div className="text-[11px] text-slate-500">
+                          NPSN: {cand.npsn} • {cand.regency}, {cand.province}
+                        </div>
+                        <div className="text-[10px] text-blue-700">Kepsek: {cand.principalName}</div>
+                      </div>
+                      <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded shrink-0">
+                        Gunakan Data
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleSaveSchoolSubmit} className="space-y-3.5 pt-2">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
@@ -552,7 +641,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
               </div>
 
               <div className="border-t border-slate-100 pt-3 space-y-3">
-                <h6 className="text-xs font-bold text-slate-800 uppercase">Data Kepala Sekolah (Untuk Pengesahan)</h6>
+                <h6 className="text-xs font-bold text-slate-800 uppercase">Data Kepala Sekolah (Untuk Lembar Pengesahan)</h6>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">
@@ -586,15 +675,19 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setIsEditingSchool(false)}
-                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition"
+                  onClick={() => {
+                    setIsEditingSchool(false);
+                    setSearchResults([]);
+                    setSearchNotice(null);
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   id="btn-save-school"
                   type="submit"
-                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 shadow-sm transition"
+                  className="px-5 py-2 rounded-xl text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 shadow-sm transition cursor-pointer"
                 >
                   Simpan Data Sekolah
                 </button>

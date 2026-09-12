@@ -31,6 +31,76 @@ function getAIClient(): GoogleGenAI {
   return aiClient;
 }
 
+// Resilient generator helper with model fallbacks and exponential backoff retry for 503/429/temporary spikes
+async function generateContentWithRetry(params: {
+  contents: string;
+  config?: any;
+}): Promise<{ text?: string }> {
+  const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+  const ai = getAIClient();
+  let lastError: any = null;
+
+  for (const model of modelsToTry) {
+    const maxRetries = 2;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: params.contents,
+          config: params.config,
+        });
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        const errMsg = (err?.message || String(err)).toLowerCase();
+        const isTransient =
+          errMsg.includes('503') ||
+          errMsg.includes('unavailable') ||
+          errMsg.includes('high demand') ||
+          errMsg.includes('spikes in demand') ||
+          errMsg.includes('429') ||
+          errMsg.includes('resource_exhausted') ||
+          errMsg.includes('500');
+
+        console.warn(`[AI Service] Model ${model} (attempt ${attempt}/${maxRetries}) error: ${err?.message || err}`);
+
+        if (isTransient && attempt < maxRetries) {
+          const delay = attempt * 800 + Math.random() * 400;
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+        break; // try next fallback model
+      }
+    }
+  }
+
+  const finalErrMsg = lastError?.message || String(lastError);
+  if (finalErrMsg.includes('503') || finalErrMsg.includes('high demand') || finalErrMsg.includes('UNAVAILABLE')) {
+    throw new Error('Layanan AI sedang mengalami lonjakan trafik tinggi dari server pusat. Silakan coba klik tombol generate kembali dalam beberapa detik.');
+  }
+  throw lastError || new Error('Gagal memproses permintaan AI');
+}
+
+function cleanAndParseJSON(rawText?: string, fallback: any = {}): any {
+  if (!rawText) return fallback;
+  let cleaned = rawText.trim();
+  if (cleaned.startsWith('```json')) {
+    cleaned = cleaned.slice(7);
+  } else if (cleaned.startsWith('```')) {
+    cleaned = cleaned.slice(3);
+  }
+  if (cleaned.endsWith('```')) {
+    cleaned = cleaned.slice(0, -3);
+  }
+  cleaned = cleaned.trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.error('Failed to parse JSON output from AI:', cleaned);
+    return fallback;
+  }
+}
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
@@ -49,7 +119,6 @@ app.post('/api/ai/analyze-cp', async (req, res) => {
       return res.status(400).json({ error: 'Data CP tidak boleh kosong' });
     }
 
-    const ai = getAIClient();
     const prompt = `Anda adalah pakar kurikulum dan konsultan pendidikan profesional di Indonesia.
 Bantu seorang guru memahami, membedah, dan menganalisis Capaian Pembelajaran (CP) berikut:
 
@@ -70,8 +139,7 @@ Berikan output dalam format JSON dengan struktur:
 4. "p3Focus": Array string dimensi Profil Pelajar Pancasila yang paling relevan.
 5. "pedagogicalTips": Array string berisi 2-3 tips strategi pembelajaran kontekstual di kelas.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateContentWithRetry({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -89,8 +157,7 @@ Berikan output dalam format JSON dengan struktur:
       },
     });
 
-    const jsonText = response.text || '{}';
-    const parsed = JSON.parse(jsonText);
+    const parsed = cleanAndParseJSON(response.text, {});
     res.json({ success: true, data: parsed });
   } catch (error: unknown) {
     console.error('Error analyzing CP:', error);
@@ -108,7 +175,6 @@ app.post('/api/ai/generate-tp', async (req, res) => {
       return res.status(400).json({ error: 'Capaian Pembelajaran (CP) harus diisi terlebih dahulu' });
     }
 
-    const ai = getAIClient();
     const prompt = `Anda adalah ahli perancangan kurikulum pendidikan nasional Indonesia.
 Tugas Anda adalah merumuskan Tujuan Pembelajaran (TP) yang diturunkan SECARA KETAT dan EKSPLISIT dari Capaian Pembelajaran (CP) yang diberikan di bawah ini.
 
@@ -133,8 +199,7 @@ ${
 Buatlah sekitar ${count} hingga 6 butir Tujuan Pembelajaran (TP) yang sistematis.
 Kembalikan respon dalam format JSON sesuai schema:`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateContentWithRetry({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -160,8 +225,7 @@ Kembalikan respon dalam format JSON sesuai schema:`;
       },
     });
 
-    const jsonText = response.text || '[]';
-    const parsed = JSON.parse(jsonText);
+    const parsed = cleanAndParseJSON(response.text, []);
     res.json({ success: true, items: parsed });
   } catch (error: unknown) {
     console.error('Error generating TP:', error);
@@ -179,7 +243,6 @@ app.post('/api/ai/generate-atp', async (req, res) => {
       return res.status(400).json({ error: 'Daftar Tujuan Pembelajaran (TP) harus ada sebelum menyusun ATP' });
     }
 
-    const ai = getAIClient();
     const prompt = `Anda adalah spesialis penyusun Alur Tujuan Pembelajaran (ATP) dan perangkat pembelajaran Kurikulum Merdeka.
 Susunlah Matriks Alur Tujuan Pembelajaran (ATP) yang berurutan secara logis, pedagogis, dan terstruktur dari daftar Tujuan Pembelajaran (TP) berikut:
 
@@ -209,8 +272,7 @@ INSTRUKSI PENYUSUNAN ATP:
 
 Kembalikan output JSON sesuai schema:`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateContentWithRetry({
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -254,8 +316,7 @@ Kembalikan output JSON sesuai schema:`;
       },
     });
 
-    const jsonText = response.text || '{}';
-    const parsed = JSON.parse(jsonText);
+    const parsed = cleanAndParseJSON(response.text, {});
     res.json({ success: true, data: parsed });
   } catch (error: unknown) {
     console.error('Error generating ATP:', error);
@@ -272,7 +333,6 @@ app.post('/api/ai/refine-text', async (req, res) => {
       return res.status(400).json({ error: 'Teks tidak boleh kosong' });
     }
 
-    const ai = getAIClient();
     const prompt = `Anda adalah asisten ahli administrasi guru Indonesia.
 Teks asli: "${text}"
 Konteks: ${context || 'Administrasi Kurikulum Merdeka'}
@@ -280,8 +340,7 @@ Instruksi perbaikan: ${instruction || 'Sempurnakan tata bahasa, ketepatan pedago
 
 Berikan versi teks hasil penyempurnaan dalam bahasa Indonesia yang baku dan elegan. Langsung berikan teks hasil tanpa pembuka/penutup.`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+    const response = await generateContentWithRetry({
       contents: prompt,
     });
 
