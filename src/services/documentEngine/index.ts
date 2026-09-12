@@ -1,4 +1,5 @@
 import { DocumentType, DocumentGenerationContext, DocumentValidationResult, GeneratedDocumentResult, DocumentCatalogItem } from './types';
+import { generateAnalisisCpTp } from './generators/analisisCpTpGenerator';
 import { generateATP } from './generators/atpGenerator';
 import { generatePROTA } from './generators/protaGenerator';
 import { generatePROMES } from './generators/promesGenerator';
@@ -8,16 +9,32 @@ import { generateJurnal } from './generators/jurnalGenerator';
 
 export * from './types';
 export * from './docxStyles';
-export { generateATP, generatePROTA, generatePROMES, generateModulAjar, generateAssessment, generateJurnal };
+export {
+  generateAnalisisCpTp,
+  generateATP,
+  generatePROTA,
+  generatePROMES,
+  generateModulAjar,
+  generateAssessment,
+  generateJurnal,
+};
 
 export const DOCUMENT_CATALOG: DocumentCatalogItem[] = [
+  {
+    id: 'ANALISIS_CP_TP',
+    type: 'ANALISIS_CP_TP',
+    category: 'Perencanaan Utama',
+    title: 'Analisis Capaian Pembelajaran → Tujuan Pembelajaran',
+    description: 'Dokumen telaah penurunan Capaian Pembelajaran (CP) menjadi rumusan Tujuan Pembelajaran (TP) berdasarkan analisis kompetensi dan lingkup materi esensial.',
+    requiredSources: ['Data Profil & Sekolah', 'Data Akademik (Fase/Kelas/Mapel)', 'Capaian Pembelajaran (CP)'],
+  },
   {
     id: 'ATP',
     type: 'ATP',
     category: 'Perencanaan Utama',
     title: 'Alur Tujuan Pembelajaran (ATP)',
     description: 'Dokumen turunan CP & TP yang memuat alur langkah pembelajaran bertahap, alokasi JP, Profil Pelajar Pancasila, rencana asesmen, dan glosarium.',
-    requiredSources: ['Data Profil & Sekolah', 'Data Akademik (Fase/Kelas/Mapel)', 'Tujuan Pembelajaran (TP)', 'Matriks ATP'],
+    requiredSources: ['Data Profil & Sekolah', 'Data Akademik', 'Tujuan Pembelajaran (TP)', 'Matriks ATP'],
   },
   {
     id: 'PROTA',
@@ -57,12 +74,13 @@ export const DOCUMENT_CATALOG: DocumentCatalogItem[] = [
     category: 'Pelaksanaan',
     title: 'Jurnal Harian Pelaksanaan Pembelajaran',
     description: 'Format jurnal operasional mengajar harian, pencatatan aktivitas tatap muka, kehadiran siswa, refleksi pembelajaran, dan tindak lanjut.',
-    requiredSources: ['Data Profil & Sekolah', 'Data Akademik', 'Alur Tujuan Pembelajaran (ATP)'],
+    requiredSources: ['Data Profil & Sekolah', 'Data Akademik', 'Tujuan Pembelajaran (TP) / ATP'],
   },
 ];
 
 /**
  * Validates whether all prerequisites for generating the document are met.
+ * Per-document validation logic so each document only requires its true prerequisites.
  */
 export function validateDocumentRequirements(
   type: DocumentType,
@@ -70,17 +88,15 @@ export function validateDocumentRequirements(
 ): DocumentValidationResult {
   const missingFields: string[] = [];
 
-  // Check School Profile
+  // Common: School & Teacher Profile
   if (!context.school?.name?.trim()) {
     missingFields.push('Nama Satuan Pendidikan belum diisi');
   }
-
-  // Check Teacher Profile
   if (!context.profile?.name?.trim()) {
     missingFields.push('Nama Guru Penyusun belum diisi');
   }
 
-  // Check Academic Setting
+  // Common: Academic Setting
   if (!context.academicSetting?.subject?.trim()) {
     missingFields.push('Mata Pelajaran belum dipilih');
   }
@@ -88,26 +104,67 @@ export function validateDocumentRequirements(
     missingFields.push('Kelas / Fase belum ditentukan');
   }
 
-  // Check ATP Items
+  const cpHasContent = !!(
+    context.cp?.generalDescription?.trim() ||
+    (context.cp?.elements && context.cp.elements.length > 0)
+  );
+  const tpCount = context.tp?.items?.length || 0;
   const atpCount = context.atp?.items?.length || 0;
-  if (atpCount === 0) {
-    missingFields.push('Data Alur Tujuan Pembelajaran (ATP) masih kosong');
-  }
 
-  // Specific validations
-  if (type === 'MODUL_AJAR' || type === 'ASESMEN') {
-    const tpCount = context.tp?.items?.length || 0;
-    if (tpCount === 0 && atpCount === 0) {
-      missingFields.push('Tujuan Pembelajaran (TP) belum disusun');
-    }
+  // Granular document-specific validation
+  switch (type) {
+    case 'ANALISIS_CP_TP':
+      if (!cpHasContent) {
+        missingFields.push('Capaian Pembelajaran (CP) belum tersedia');
+      }
+      break;
+
+    case 'ATP':
+      if (tpCount === 0) {
+        missingFields.push('Tujuan Pembelajaran (TP) belum disusun');
+      }
+      if (atpCount === 0) {
+        missingFields.push('Matriks Alur Tujuan Pembelajaran (ATP) masih kosong');
+      }
+      break;
+
+    case 'PROTA':
+    case 'PROMES':
+      if (atpCount === 0) {
+        missingFields.push('Alur Tujuan Pembelajaran (ATP) belum disusun');
+      }
+      break;
+
+    case 'MODUL_AJAR':
+    case 'ASESMEN':
+      if (tpCount === 0) {
+        missingFields.push('Tujuan Pembelajaran (TP) belum dirumuskan');
+      }
+      if (atpCount === 0) {
+        missingFields.push('Alur Tujuan Pembelajaran (ATP) belum disusun');
+      }
+      break;
+
+    case 'JURNAL':
+      if (tpCount === 0 && atpCount === 0 && !cpHasContent) {
+        missingFields.push('Data rancangan pembelajaran (CP/TP/ATP) belum tersedia');
+      }
+      break;
   }
 
   if (missingFields.length > 0) {
     let targetStep: DocumentValidationResult['targetStep'] = 'profile';
-    if (!context.school?.name || !context.profile?.name) targetStep = 'profile';
-    else if (!context.academicSetting?.subject) targetStep = 'academic';
-    else if (!context.tp?.items?.length && (type === 'MODUL_AJAR' || type === 'ASESMEN')) targetStep = 'tp';
-    else if (atpCount === 0) targetStep = 'atp';
+    if (!context.school?.name || !context.profile?.name) {
+      targetStep = 'profile';
+    } else if (!context.academicSetting?.subject || !context.academicSetting?.grade) {
+      targetStep = 'academic';
+    } else if (!cpHasContent) {
+      targetStep = 'cp';
+    } else if (tpCount === 0 && (type === 'ATP' || type === 'MODUL_AJAR' || type === 'ASESMEN')) {
+      targetStep = 'tp';
+    } else if (atpCount === 0 && (type === 'PROTA' || type === 'PROMES' || type === 'ATP' || type === 'MODUL_AJAR' || type === 'ASESMEN')) {
+      targetStep = 'atp';
+    }
 
     return {
       isValid: false,
@@ -136,6 +193,8 @@ export async function generateDocument(
   }
 
   switch (type) {
+    case 'ANALISIS_CP_TP':
+      return await generateAnalisisCpTp(context);
     case 'ATP':
       return await generateATP(context);
     case 'PROTA':

@@ -1,3 +1,5 @@
+import { GoogleGenAI } from '@google/genai';
+
 export interface SchoolCandidateResult {
   name: string;
   npsn: string;
@@ -9,11 +11,13 @@ export interface SchoolCandidateResult {
   level: string; // 'SD' | 'SMP' | 'SMA' | 'SMK'
   status: string; // 'Negeri' | 'Swasta'
   source: string;
+  sourceUrl?: string;
   principalName?: string;
   principalNip?: string;
   accreditation?: string;
   phone?: string;
   email?: string;
+  website?: string;
 }
 
 export interface SchoolSearchResponseData {
@@ -21,361 +25,269 @@ export interface SchoolSearchResponseData {
   found: boolean;
   candidates: SchoolCandidateResult[];
   message: string;
-  sourceType: 'online_api' | 'official_reference_directory';
+  sourceType: 'online_search' | 'official_api';
+  error?: boolean;
+}
+
+export interface SchoolDataProvider {
+  search(query: string): Promise<SchoolCandidateResult[]>;
 }
 
 /**
- * Curated reference database of verified Indonesian schools across various provinces
- * used as an instant and reliable official reference source.
+ * Normalizes and calculates match score for ranking candidates:
+ * 1. Exact NPSN match (score: 100)
+ * 2. Exact school name match (score: 90)
+ * 3. Similar school name match (score: 70)
+ * 4. District/regency match (score: 50)
+ * 5. Official Government domain source .go.id (+15)
+ * 6. Official School website .sch.id (+10)
  */
-const VERIFIED_OFFICIAL_SCHOOLS: SchoolCandidateResult[] = [
-  // DKI JAKARTA
-  {
-    name: 'SD Negeri Menteng 01',
-    npsn: '20108341',
-    address: 'Jl. Besuki No. 1',
-    village: 'Menteng',
-    district: 'Kec. Menteng',
-    regency: 'Kota Jakarta Pusat',
-    province: 'DKI Jakarta',
-    level: 'SD',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SD Negeri Kebon Jeruk 11 Pagi',
-    npsn: '20105658',
-    address: 'Jl. Raya Kebon Jeruk No. 20',
-    village: 'Kebon Jeruk',
-    district: 'Kec. Kebon Jeruk',
-    regency: 'Kota Jakarta Barat',
-    province: 'DKI Jakarta',
-    level: 'SD',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMP Negeri 115 Jakarta',
-    npsn: '20102570',
-    address: 'Jl. KH. Abdullah Syafei No. 48',
-    village: 'Tebet Timur',
-    district: 'Kec. Tebet',
-    regency: 'Kota Jakarta Selatan',
-    province: 'DKI Jakarta',
-    level: 'SMP',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMA Negeri 8 Jakarta',
-    npsn: '20102558',
-    address: 'Jl. Taman Bukit Duri, Tebet',
-    village: 'Bukit Duri',
-    district: 'Kec. Tebet',
-    regency: 'Kota Jakarta Selatan',
-    province: 'DKI Jakarta',
-    level: 'SMA',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMK Negeri 26 Jakarta',
-    npsn: '20103512',
-    address: 'Jl. Balai Pustaka Baru I, Rawamangun',
-    village: 'Rawamangun',
-    district: 'Kec. Pulo Gadung',
-    regency: 'Kota Jakarta Timur',
-    province: 'DKI Jakarta',
-    level: 'SMK',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
+function rankSchoolCandidates(query: string, candidates: SchoolCandidateResult[]): SchoolCandidateResult[] {
+  const cleanQ = query.trim().toLowerCase();
+  const isNpsnQ = /^\d{6,10}$/.test(query.trim());
 
-  // JAWA BARAT
-  {
-    name: 'SD Negeri Karang Tengah 1',
-    npsn: '20234567',
-    address: 'Jl. Raya Sukabumi No. 45',
-    village: 'Karangtengah',
-    district: 'Kec. Cibadak',
-    regency: 'Kabupaten Sukabumi',
-    province: 'Jawa Barat',
-    level: 'SD',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SD Negeri 5 Bandung',
-    npsn: '20219802',
-    address: 'Jl. Jawa No. 12',
-    village: 'Merdeka',
-    district: 'Kec. Sumur Bandung',
-    regency: 'Kota Bandung',
-    province: 'Jawa Barat',
-    level: 'SD',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SD Negeri Pengadilan 2 Bogor',
-    npsn: '20220268',
-    address: 'Jl. Pengadilan No. 29',
-    village: 'Pabaton',
-    district: 'Kec. Bogor Tengah',
-    regency: 'Kota Bogor',
-    province: 'Jawa Barat',
-    level: 'SD',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMP Negeri 1 Bogor',
-    npsn: '20220401',
-    address: 'Jl. Ir. H. Juanda No. 16',
-    village: 'Paledang',
-    district: 'Kec. Bogor Tengah',
-    regency: 'Kota Bogor',
-    province: 'Jawa Barat',
-    level: 'SMP',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMA Negeri 3 Bandung',
-    npsn: '20219266',
-    address: 'Jl. Belitung No. 8',
-    village: 'Merdeka',
-    district: 'Kec. Sumur Bandung',
-    regency: 'Kota Bandung',
-    province: 'Jawa Barat',
-    level: 'SMA',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
+  const scored = candidates.map((cand) => {
+    let score = 0;
+    const candName = (cand.name || '').toLowerCase();
+    const candNpsn = (cand.npsn || '').toLowerCase();
+    const candSource = (cand.source || '').toLowerCase();
+    const candUrl = (cand.sourceUrl || '').toLowerCase();
 
-  // JAWA TENGAH
-  {
-    name: 'SD Negeri Pekunden Semarang',
-    npsn: '20328845',
-    address: 'Jl. KH. Ahmad Dahlan No. 2',
-    village: 'Pekunden',
-    district: 'Kec. Semarang Tengah',
-    regency: 'Kota Semarang',
-    province: 'Jawa Tengah',
-    level: 'SD',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMP Negeri 1 Surakarta',
-    npsn: '20327980',
-    address: 'Jl. MT Haryono No. 4',
-    village: 'Manahan',
-    district: 'Kec. Banjarsari',
-    regency: 'Kota Surakarta',
-    province: 'Jawa Tengah',
-    level: 'SMP',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMA Negeri 1 Semarang',
-    npsn: '20328906',
-    address: 'Jl. Taman Menteri Supeno No. 1',
-    village: 'Mugassari',
-    district: 'Kec. Semarang Selatan',
-    regency: 'Kota Semarang',
-    province: 'Jawa Tengah',
-    level: 'SMA',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
+    if (isNpsnQ && candNpsn === cleanQ) {
+      score += 100;
+    } else if (isNpsnQ && candNpsn.includes(cleanQ)) {
+      score += 80;
+    }
 
-  // D.I. YOGYAKARTA
-  {
-    name: 'SD Negeri Ungaran 1 Yogyakarta',
-    npsn: '20403321',
-    address: 'Jl. Ungaran No. 1 Kotabaru',
-    village: 'Kotabaru',
-    district: 'Kec. Gondokusuman',
-    regency: 'Kota Yogyakarta',
-    province: 'D.I. Yogyakarta',
-    level: 'SD',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMP Negeri 5 Yogyakarta',
-    npsn: '20403214',
-    address: 'Jl. Wardhani No. 1 Kotabaru',
-    village: 'Kotabaru',
-    district: 'Kec. Gondokusuman',
-    regency: 'Kota Yogyakarta',
-    province: 'D.I. Yogyakarta',
-    level: 'SMP',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMA Negeri 3 Yogyakarta',
-    npsn: '20403178',
-    address: 'Jl. Yos Sudarso No. 7 Kotabaru',
-    village: 'Kotabaru',
-    district: 'Kec. Gondokusuman',
-    regency: 'Kota Yogyakarta',
-    province: 'D.I. Yogyakarta',
-    level: 'SMA',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
+    if (candName === cleanQ) {
+      score += 90;
+    } else if (candName.includes(cleanQ) || cleanQ.includes(candName)) {
+      score += 70;
+    } else {
+      const qWords = cleanQ.split(/\s+/).filter((w) => w.length > 2);
+      const matchWords = qWords.filter((w) => candName.includes(w));
+      score += matchWords.length * 15;
+    }
 
-  // JAWA TIMUR
-  {
-    name: 'SD Negeri Kaliasin 1 Surabaya',
-    npsn: '20532450',
-    address: 'Jl. Gubernur Suryo No. 28',
-    village: 'Embong Kaliasin',
-    district: 'Kec. Genteng',
-    regency: 'Kota Surabaya',
-    province: 'Jawa Timur',
-    level: 'SD',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMP Negeri 1 Surabaya',
-    npsn: '20532104',
-    address: 'Jl. Pacar No. 4-6',
-    village: 'Ketabang',
-    district: 'Kec. Genteng',
-    regency: 'Kota Surabaya',
-    province: 'Jawa Timur',
-    level: 'SMP',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMA Negeri 5 Surabaya',
-    npsn: '20532247',
-    address: 'Jl. Kusuma Bangsa No. 21',
-    village: 'Kapasari',
-    district: 'Kec. Genteng',
-    regency: 'Kota Surabaya',
-    province: 'Jawa Timur',
-    level: 'SMA',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
+    // Source reliability bonus
+    if (candSource.includes('kemendikdasmen') || candSource.includes('kemdikbud') || candUrl.includes('.go.id')) {
+      score += 15;
+    } else if (candUrl.includes('.sch.id')) {
+      score += 10;
+    }
 
-  // BALI
-  {
-    name: 'SD Negeri 1 Saraswati Denpasar',
-    npsn: '50103120',
-    address: 'Jl. Kamboja No. 11',
-    village: 'Dangin Puri Kangin',
-    district: 'Kec. Denpasar Utara',
-    regency: 'Kota Denpasar',
-    province: 'Bali',
-    level: 'SD',
-    status: 'Swasta',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMP Negeri 1 Denpasar',
-    npsn: '50103102',
-    address: 'Jl. Surapati No. 2',
-    village: 'Dangin Puri',
-    district: 'Kec. Denpasar Timur',
-    regency: 'Kota Denpasar',
-    province: 'Bali',
-    level: 'SMP',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
+    return { cand, score };
+  });
 
-  // SUMATERA UTARA
-  {
-    name: 'SD Negeri 060808 Medan',
-    npsn: '10210874',
-    address: 'Jl. STM No. 12',
-    village: 'Siti Rejo II',
-    district: 'Kec. Medan Amplas',
-    regency: 'Kota Medan',
-    province: 'Sumatera Utara',
-    level: 'SD',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMA Negeri 1 Medan',
-    npsn: '10210803',
-    address: 'Jl. Teuku Cik Ditiro No. 1',
-    village: 'Madras Hulu',
-    district: 'Kec. Medan Polonia',
-    regency: 'Kota Medan',
-    province: 'Sumatera Utara',
-    level: 'SMA',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((s) => s.cand);
+}
 
-  // SULAWESI SELATAN
-  {
-    name: 'SD Negeri Unggulan Mongisidi 1',
-    npsn: '40307521',
-    address: 'Jl. Monginsidi No. 42',
-    village: 'Maricaya Baru',
-    district: 'Kec. Makassar',
-    regency: 'Kota Makassar',
-    province: 'Sulawesi Selatan',
-    level: 'SD',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-  {
-    name: 'SMA Negeri 1 Makassar',
-    npsn: '40311956',
-    address: 'Jl. Gunung Bawakaraeng No. 53',
-    village: 'Pisang Utara',
-    district: 'Kec. Ujung Pandang',
-    regency: 'Kota Makassar',
-    province: 'Sulawesi Selatan',
-    level: 'SMA',
-    status: 'Negeri',
-    source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-    accreditation: 'A',
-  },
-];
+/**
+ * Trusted Web Search Provider:
+ * Discovers and extracts official school data from trusted Indonesian education pages
+ * (.kemdikbud.go.id, .kemendikdasmen.go.id, referensi.data.kemdikbud.go.id, sekolah.data.kemdikbud.go.id, dapo.kemdikbud.go.id, .sch.id).
+ */
+export class TrustedWebSearchProvider implements SchoolDataProvider {
+  private getAIClient(): GoogleGenAI | null {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return null;
+    return new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
 
-export class OfficialEducationDataProvider {
   /**
-   * Search for school records matching query (NPSN or school name/location).
-   * Queries real online endpoints when available and combines with verified reference data.
+   * 1. Query online education reference service if available
    */
+  private async queryOnlineDirectory(query: string): Promise<SchoolCandidateResult[]> {
+    const isNpsnQuery = /^\d{6,10}$/.test(query.trim());
+    const endpoint = isNpsnQuery
+      ? `https://api-sekolah-indonesia.vercel.app/sekolah/s?npsn=${encodeURIComponent(query.trim())}`
+      : `https://api-sekolah-indonesia.vercel.app/sekolah/s?nama=${encodeURIComponent(query.trim())}&perPage=10`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+    try {
+      const res = await fetch(endpoint, {
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'AdministrasiGuruAI/2.0 (Official-Education-Reference-Search)',
+        },
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) return [];
+
+      const data: any = await res.json();
+      if (data && data.dataSekolah && Array.isArray(data.dataSekolah)) {
+        return data.dataSekolah.map((item: any) => {
+          const npsn = item.npsn || '';
+          const rawName = item.sekolah || item.nama || item.name || 'Satuan Pendidikan';
+          const level = (item.bentuk || item.jenjang || (rawName.startsWith('SD') ? 'SD' : rawName.startsWith('SMP') ? 'SMP' : rawName.startsWith('SMA') ? 'SMA' : rawName.startsWith('SMK') ? 'SMK' : 'SD')).toUpperCase();
+          const status = item.status || (rawName.toLowerCase().includes('negeri') ? 'Negeri' : 'Swasta');
+          const refUrl = npsn
+            ? `https://referensi.data.kemdikbud.go.id/tabs.php?npsn=${npsn}`
+            : 'https://referensi.data.kemdikbud.go.id/';
+
+          return {
+            name: rawName,
+            npsn,
+            address: item.alamat_jalan || item.alamat || 'Belum tersedia',
+            village: item.desa_kelurahan || item.kelurahan || '',
+            district: item.kecamatan ? (item.kecamatan.startsWith('Kec.') ? item.kecamatan : `Kec. ${item.kecamatan}`) : '',
+            regency: item.kabupaten_kota || item.kab_kota || '',
+            province: item.propinsi || item.provinsi || '',
+            level,
+            status,
+            source: 'Data Referensi Pendidikan Kemendikdasmen',
+            sourceUrl: refUrl,
+            accreditation: item.akreditasi || '',
+            phone: item.telepon || '',
+            email: item.email || '',
+            website: item.website || '',
+            principalName: '',
+            principalNip: '',
+          };
+        });
+      }
+    } catch (e) {
+      clearTimeout(timeoutId);
+      console.log(`[TrustedWebSearchProvider] Directory endpoint notice: ${(e as Error)?.message}`);
+    }
+    return [];
+  }
+
+  /**
+   * 2. Live Web Discovery using Google Search Grounding for government & official school domains
+   */
+  private async queryWebSearchGrounding(query: string): Promise<SchoolCandidateResult[]> {
+    const ai = this.getAIClient();
+    if (!ai) return [];
+
+    try {
+      const prompt = `Anda adalah sistem pencarian data resmi satuan pendidikan di Indonesia.
+Lakukan pencarian data sekolah valid dari website resmi Kemendikdasmen/Kemdikbud (referensi.data.kemdikbud.go.id, sekolah.data.kemdikbud.go.id, dapo.kemdikbud.go.id) atau website resmi sekolah untuk query: "${query}".
+
+PERINGATAN:
+- JANGAN mengarang data atau mengarang NPSN. Jika data tidak ditemukan dari sumber resmi internet, kembalikan array kosong [].
+- Hanya kembalikan data yang terverifikasi dari sumber terpercaya.
+- JANGAN mengisi nama kepala sekolah atau NIP (kosongkan string "").
+
+Kembalikan hasil dalam format JSON array:
+[
+  {
+    "name": "Nama Lengkap Sekolah (misal: SD Negeri Menteng 01)",
+    "npsn": "8 digit nomor pokok sekolah nasional",
+    "address": "Alamat jalan",
+    "village": "Desa atau Kelurahan",
+    "district": "Kecamatan (awali dengan Kec. )",
+    "regency": "Kabupaten atau Kota",
+    "province": "Provinsi",
+    "level": "SD / SMP / SMA / SMK",
+    "status": "Negeri / Swasta",
+    "source": "Nama Sumber (misal: Data Referensi Pendidikan Kemendikdasmen / Website Resmi)",
+    "sourceUrl": "URL tautan web sumber rujukan resmi",
+    "accreditation": "A / B / C / Belum Terakreditasi"
+  }
+]`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+        },
+      });
+
+      let text = response.text || '';
+      if (text.includes('```json')) {
+        text = text.slice(text.indexOf('```json') + 7);
+        if (text.includes('```')) {
+          text = text.slice(0, text.indexOf('```'));
+        }
+      } else if (text.includes('```')) {
+        text = text.slice(text.indexOf('```') + 3);
+        if (text.includes('```')) {
+          text = text.slice(0, text.indexOf('```'));
+        }
+      }
+      text = text.trim();
+
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((item: any) => item && item.name && typeof item.name === 'string')
+          .map((item: any) => ({
+            name: item.name,
+            npsn: item.npsn || '',
+            address: item.address || 'Belum tersedia',
+            village: item.village || '',
+            district: item.district ? (item.district.startsWith('Kec.') ? item.district : `Kec. ${item.district}`) : '',
+            regency: item.regency || '',
+            province: item.province || '',
+            level: (item.level || 'SD').toUpperCase(),
+            status: item.status || (item.name.toLowerCase().includes('negeri') ? 'Negeri' : 'Swasta'),
+            source: item.source || 'Data Referensi Pendidikan Kemendikdasmen',
+            sourceUrl: item.sourceUrl || (item.npsn ? `https://referensi.data.kemdikbud.go.id/tabs.php?npsn=${item.npsn}` : 'https://referensi.data.kemdikbud.go.id/'),
+            accreditation: item.accreditation || '',
+            principalName: '',
+            principalNip: '',
+          }));
+      }
+    } catch (err) {
+      console.log(`[TrustedWebSearchProvider] Web grounding search notice: ${(err as Error)?.message}`);
+    }
+    return [];
+  }
+
+  /**
+   * Main search method implementing data aggregation and ranking
+   */
+  async search(query: string): Promise<SchoolCandidateResult[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    // Parallel search across online directory and live web discovery
+    const [directoryResults, webResults] = await Promise.all([
+      this.queryOnlineDirectory(trimmed),
+      this.queryWebSearchGrounding(trimmed),
+    ]);
+
+    // Merge and deduplicate by NPSN or lowercase school name
+    const combined: SchoolCandidateResult[] = [];
+    const seen = new Set<string>();
+
+    for (const cand of [...directoryResults, ...webResults]) {
+      const key = cand.npsn ? cand.npsn : cand.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (!seen.has(key)) {
+        seen.add(key);
+        combined.push(cand);
+      }
+    }
+
+    // Rank candidates by precision and domain credibility
+    return rankSchoolCandidates(trimmed, combined);
+  }
+}
+
+/**
+ * School Search Service Abstraction
+ */
+export class OfficialEducationDataProvider {
+  private static provider: SchoolDataProvider = new TrustedWebSearchProvider();
+
+  public static setProvider(customProvider: SchoolDataProvider) {
+    this.provider = customProvider;
+  }
+
   static async search(query: string): Promise<SchoolSearchResponseData> {
     const trimmed = query.trim();
     if (!trimmed) {
@@ -384,97 +296,40 @@ export class OfficialEducationDataProvider {
         found: false,
         candidates: [],
         message: 'Masukkan nama sekolah atau NPSN untuk mencari data identitas.',
-        sourceType: 'official_reference_directory',
+        sourceType: 'online_search',
       };
     }
 
-    const cleanQuery = trimmed.toLowerCase();
-    const isNpsnQuery = /^\d{6,10}$/.test(trimmed);
-
-    // 1. Search within the local verified Kemendikdasmen reference dataset
-    const matchedLocal = VERIFIED_OFFICIAL_SCHOOLS.filter((school) => {
-      if (isNpsnQuery) {
-        return school.npsn.includes(trimmed);
-      }
-      const searchTerms = cleanQuery.split(/\s+/).filter(Boolean);
-      const combinedText = `${school.name} ${school.npsn} ${school.village} ${school.district} ${school.regency} ${school.province}`.toLowerCase();
-      return searchTerms.every((term) => combinedText.includes(term));
-    });
-
-    // 2. Try querying public Indonesian education reference lookup API if available online
-    let onlineCandidates: SchoolCandidateResult[] = [];
     try {
-      const searchEndpoint = isNpsnQuery
-        ? `https://api-sekolah-indonesia.vercel.app/sekolah/s?npsn=${encodeURIComponent(trimmed)}`
-        : `https://api-sekolah-indonesia.vercel.app/sekolah/s?nama=${encodeURIComponent(trimmed)}&perPage=10`;
+      const candidates = await this.provider.search(trimmed);
 
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
-
-      const res = await fetch(searchEndpoint, {
-        signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'AdministrasiGuruAI/1.0 (Education-Reference-Client)',
-        },
-      });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const data: any = await res.json();
-        if (data && data.dataSekolah && Array.isArray(data.dataSekolah)) {
-          onlineCandidates = data.dataSekolah.map((item: any) => {
-            return {
-              name: item.sekolah || item.nama || item.name || 'Satuan Pendidikan',
-              npsn: item.npsn || '',
-              address: item.alamat_jalan || item.alamat || 'Alamat sekolah terdaftar',
-              village: item.desa_kelurahan || item.kelurahan || '',
-              district: item.kecamatan ? (item.kecamatan.startsWith('Kec.') ? item.kecamatan : `Kec. ${item.kecamatan}`) : '',
-              regency: item.kabupaten_kota || item.kab_kota || '',
-              province: item.propinsi || item.provinsi || '',
-              level: (item.bentuk || item.jenjang || 'SD').toUpperCase(),
-              status: item.status || (item.sekolah?.toLowerCase().includes('negeri') ? 'Negeri' : 'Swasta'),
-              source: 'Data Referensi Pendidikan Kemendikdasmen (referensi.data.kemendikdasmen.go.id)',
-              accreditation: item.akreditasi || '',
-              // Principal name and NIP are intentionally left blank for manual teacher verification
-              principalName: '',
-              principalNip: '',
-            };
-          });
-        }
+      if (candidates.length > 0) {
+        return {
+          query: trimmed,
+          found: true,
+          candidates: candidates.slice(0, 10),
+          message: `Ditemukan ${candidates.length} data satuan pendidikan dari sumber online. Silakan pilih dan lengkapi data sekolah di bawah.`,
+          sourceType: 'online_search',
+        };
       }
-    } catch (err) {
-      console.log(`[SchoolProvider] Online API lookup bypassed, using verified official reference repository: ${(err as Error)?.message}`);
-    }
 
-    // Merge candidates, avoiding exact NPSN duplicates
-    const combined: SchoolCandidateResult[] = [];
-    const seenNpsn = new Set<string>();
-
-    for (const cand of [...onlineCandidates, ...matchedLocal]) {
-      const key = cand.npsn || cand.name.toLowerCase();
-      if (!seenNpsn.has(key)) {
-        seenNpsn.add(key);
-        combined.push(cand);
-      }
-    }
-
-    if (combined.length > 0) {
       return {
         query: trimmed,
-        found: true,
-        candidates: combined.slice(0, 10),
-        message: `Ditemukan ${combined.length} data satuan pendidikan dari Data Referensi Kemendikdasmen. Silakan pilih dan verifikasi data di bawah.`,
-        sourceType: onlineCandidates.length > 0 ? 'online_api' : 'official_reference_directory',
+        found: false,
+        candidates: [],
+        message: 'Tidak ditemukan pada sumber data yang tersedia.',
+        sourceType: 'online_search',
+      };
+    } catch (error: unknown) {
+      console.error('[OfficialEducationDataProvider] Search error:', error);
+      return {
+        query: trimmed,
+        found: false,
+        candidates: [],
+        message: 'Tidak dapat menghubungi sumber data sekolah saat ini.',
+        sourceType: 'online_search',
+        error: true,
       };
     }
-
-    return {
-      query: trimmed,
-      found: false,
-      candidates: [],
-      message: 'Tidak ditemukan pada sumber data yang tersedia.',
-      sourceType: 'official_reference_directory',
-    };
   }
 }

@@ -139,15 +139,27 @@ export interface ATPData {
   updatedAt: string;
 }
 
+export type DocumentType =
+  | 'ANALISIS_CP_TP'
+  | 'ATP'
+  | 'PROTA'
+  | 'PROMES'
+  | 'MODUL_AJAR'
+  | 'ASESMEN'
+  | 'JURNAL';
+
 export interface AppDocumentRecord {
   id: string;
-  type: 'ATP' | 'PROTA' | 'PROMES' | 'MODUL_AJAR' | 'ASESMEN' | 'JURNAL';
+  type: DocumentType;
   title: string;
   status: 'completed' | 'draft' | 'future_sprint';
   lastGenerated?: string;
   fileName?: string;
   academicSettingId?: string;
   workspaceId?: string;
+  sourceUpdatedAt?: string;
+  generatedAt?: string;
+  generatedFrom?: string;
 }
 
 export interface ProfileWorkspaceData {

@@ -26,9 +26,9 @@ import {
   ATPData,
   AdministrationWorkspace,
   AppDocumentRecord,
+  DocumentType,
 } from '../types';
 import {
-  DocumentType,
   DOCUMENT_CATALOG,
   generateDocument,
   validateDocumentRequirements,
@@ -61,7 +61,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
   onBackToStep,
   onUpdateDocuments,
 }) => {
-  const [activePreviewType, setActivePreviewType] = useState<DocumentType>('ATP');
+  const [activePreviewType, setActivePreviewType] = useState<DocumentType>('ANALISIS_CP_TP');
   const [generatingDocType, setGeneratingDocType] = useState<string | null>(null);
   const [isExportingAll, setIsExportingAll] = useState(false);
   const [exportSuccessMessage, setExportSuccessMessage] = useState<string | null>(null);
@@ -92,12 +92,33 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
     return localDocs.find((d) => d.type === type && (!d.workspaceId || d.workspaceId === workspace?.id));
   };
 
-  const isDocOutdated = (doc?: AppDocumentRecord): boolean => {
-    if (!doc || !doc.lastGenerated) return false;
-    const docTime = new Date(doc.lastGenerated).getTime();
-    const atpTime = atp.updatedAt ? new Date(atp.updatedAt).getTime() : 0;
+  /**
+   * Precise Document Dependency Tracking:
+   * Checks if source data (CP, TP, ATP) has been updated since this document was generated.
+   */
+  const isDocOutdated = (type: DocumentType, doc?: AppDocumentRecord): boolean => {
+    if (!doc) return false;
+    const docTime = new Date(doc.lastGenerated || doc.generatedAt || 0).getTime();
+    if (docTime === 0) return false;
+
+    const cpTime = cp.updatedAt ? new Date(cp.updatedAt).getTime() : 0;
     const tpTime = tp.updatedAt ? new Date(tp.updatedAt).getTime() : 0;
-    return atpTime > docTime || tpTime > docTime;
+    const atpTime = atp.updatedAt ? new Date(atp.updatedAt).getTime() : 0;
+
+    switch (type) {
+      case 'ANALISIS_CP_TP':
+        return cpTime > docTime;
+      case 'ATP':
+        return cpTime > docTime || tpTime > docTime || atpTime > docTime;
+      case 'PROTA':
+      case 'PROMES':
+      case 'MODUL_AJAR':
+      case 'ASESMEN':
+      case 'JURNAL':
+        return atpTime > docTime || tpTime > docTime || cpTime > docTime;
+      default:
+        return false;
+    }
   };
 
   const handleGenerateSingleDoc = async (type: DocumentType) => {
@@ -136,7 +157,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
     setExportErrorMessage(null);
     setExportSuccessMessage(null);
 
-    const docTypes: DocumentType[] = ['ATP', 'PROTA', 'PROMES', 'MODUL_AJAR', 'ASESMEN', 'JURNAL'];
+    const docTypes: DocumentType[] = ['ANALISIS_CP_TP', 'ATP', 'PROTA', 'PROMES', 'MODUL_AJAR', 'ASESMEN', 'JURNAL'];
     let successCount = 0;
     const newRecords: AppDocumentRecord[] = [...localDocs];
 
@@ -152,7 +173,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             newRecords.push(res.record);
           }
           successCount++;
-          // Tiny delay between downloads to prevent browser throttling
+          // Delay between downloads to prevent browser throttling
           await new Promise((r) => setTimeout(r, 600));
         }
       }
@@ -181,6 +202,14 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
     ? ['Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
     : ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni'];
 
+  // Categories defined in official sequence
+  const catalogCategories = [
+    { key: 'Perencanaan Utama', label: '1. PERENCANAAN UTAMA' },
+    { key: 'Perangkat Pembelajaran', label: '2. PERANGKAT PEMBELAJARAN' },
+    { key: 'Asesmen', label: '3. ASESMEN & EVALUASI' },
+    { key: 'Pelaksanaan', label: '4. PELAKSANAAN & JURNAL' },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header Banner */}
@@ -194,7 +223,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
               <h3 className="text-lg font-bold text-slate-900">Pusat Generator Dokumen Administrasi Pembelajaran</h3>
             </div>
             <p className="text-sm text-slate-500 mt-1">
-              Generator dokumen Kurikulum Merdeka nyata dalam format <strong>Microsoft Word (.docx)</strong> berstandar resmi, lengkap dengan kop sekolah, matriks alur, rubrik KKTP, dan lembar pengesahan.
+              Generator dokumen Kurikulum Merdeka nyata dalam format <strong>Microsoft Word (.docx)</strong> berstandar resmi (PPA Revisi 2025), lengkap dari <strong>Analisis CP → TP</strong>, Alur ATP, Prota, Promes, Modul Ajar, Asesmen KKTP, hingga Jurnal Harian.
             </p>
             {workspace && (
               <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-medium">
@@ -209,13 +238,13 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             <button
               id="btn-export-all-docs"
               onClick={handleGenerateAllDocs}
-              disabled={isExportingAll || !isATPValid}
+              disabled={isExportingAll || !isCPValid}
               className="inline-flex items-center justify-center gap-2 bg-blue-900 hover:bg-blue-950 text-white px-5 py-2.5 rounded-xl text-xs font-bold shadow-md shadow-blue-900/15 transition-all cursor-pointer disabled:opacity-50"
             >
               {isExportingAll ? (
                 <>
                   <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  <span>Memproses Berkas...</span>
+                  <span>Memproses Berkas (.docx)...</span>
                 </>
               ) : (
                 <>
@@ -254,9 +283,9 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-blue-600" />
-                <span>Integritas Alur Berkelanjutan</span>
+                <span>Integritas Rantai Administrasi</span>
               </h4>
-              <span className="text-[11px] text-slate-400">Prasyarat Generator</span>
+              <span className="text-[11px] text-slate-400">Prasyarat Dokumen</span>
             </div>
 
             <div className="space-y-2 text-xs">
@@ -342,90 +371,116 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             </div>
           </div>
 
-          {/* Document Engine Catalog */}
-          <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs space-y-3">
+          {/* Document Engine Catalog with Categories */}
+          <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                Generator Dokumen Administrasi ({DOCUMENT_CATALOG.length})
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-blue-600" />
+                <span>Katalog Dokumen Administrasi ({DOCUMENT_CATALOG.length})</span>
               </h4>
               <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                Semua Aktif (.docx)
+                Format Resmi .docx
               </span>
             </div>
 
-            <div className="space-y-2.5">
-              {DOCUMENT_CATALOG.map((catItem) => {
-                const record = getDocRecord(catItem.type);
-                const isOutdated = isDocOutdated(record);
-                const isGenerating = generatingDocType === catItem.type;
-                const isSelectedForPreview = activePreviewType === catItem.type;
+            <div className="space-y-5">
+              {catalogCategories.map((category) => {
+                const itemsInCategory = DOCUMENT_CATALOG.filter((c) => c.category === category.key);
+                if (itemsInCategory.length === 0) return null;
 
                 return (
-                  <div
-                    key={catItem.id}
-                    className={`p-3.5 rounded-xl border transition cursor-pointer ${
-                      isSelectedForPreview
-                        ? 'border-blue-600 bg-blue-50/40 shadow-xs'
-                        : 'border-slate-200/80 bg-white hover:border-slate-300'
-                    }`}
-                    onClick={() => setActivePreviewType(catItem.type)}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-slate-900">{catItem.title}</span>
-                          {record && (
-                            <span
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                isOutdated
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-emerald-100 text-emerald-800'
-                              }`}
-                            >
-                              {isOutdated ? 'Perlu diperbarui' : 'Sudah Dibuat'}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[10px] text-blue-700 font-semibold bg-blue-100/60 px-1.5 py-0.2 rounded inline-block mt-0.5">
-                          {catItem.category}
-                        </span>
-                      </div>
-
-                      <button
-                        type="button"
-                        id={`btn-download-${catItem.type.toLowerCase()}`}
-                        disabled={isGenerating || isExportingAll || !isATPValid}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleGenerateSingleDoc(catItem.type);
-                        }}
-                        className="px-3 py-1.5 bg-blue-800 hover:bg-blue-900 disabled:bg-slate-300 text-white rounded-lg text-xs font-bold shrink-0 transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                      >
-                        {isGenerating ? (
-                          <>
-                            <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                            <span>Exporting...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Download className="w-3.5 h-3.5 text-blue-200" />
-                            <span>{record ? 'Unduh Ulang' : 'Unduh .docx'}</span>
-                          </>
-                        )}
-                      </button>
+                  <div key={category.key} className="space-y-2.5">
+                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-1">
+                      {category.label}
                     </div>
 
-                    <p className="text-[11px] text-slate-500 mt-1 leading-normal">{catItem.description}</p>
+                    <div className="space-y-2.5">
+                      {itemsInCategory.map((catItem) => {
+                        const record = getDocRecord(catItem.type);
+                        const validation = validateDocumentRequirements(catItem.type, context);
+                        const isOutdated = isDocOutdated(catItem.type, record);
+                        const isGenerating = generatingDocType === catItem.type;
+                        const isSelectedForPreview = activePreviewType === catItem.type;
 
-                    <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
-                      <span>Sumber data: {catItem.requiredSources.join(' → ')}</span>
-                      {isSelectedForPreview ? (
-                        <span className="text-blue-700 font-bold flex items-center gap-0.5">
-                          Sedang Ditinjau <ChevronRight className="w-3 h-3" />
-                        </span>
-                      ) : (
-                        <span className="hover:text-slate-600">Klik untuk pratinjau</span>
-                      )}
+                        // Status resolution:
+                        let statusText = 'Siap dibuat';
+                        let statusColor = 'bg-blue-100 text-blue-800 border-blue-200';
+
+                        if (!validation.isValid) {
+                          statusText = 'Belum lengkap datanya';
+                          statusColor = 'bg-slate-100 text-slate-600 border-slate-200';
+                        } else if (record && isOutdated) {
+                          statusText = 'Perlu diperbarui';
+                          statusColor = 'bg-amber-100 text-amber-900 border-amber-300';
+                        } else if (record) {
+                          statusText = 'Siap diunduh';
+                          statusColor = 'bg-emerald-100 text-emerald-900 border-emerald-300';
+                        }
+
+                        return (
+                          <div
+                            key={catItem.id}
+                            className={`p-3.5 rounded-xl border transition cursor-pointer ${
+                              isSelectedForPreview
+                                ? 'border-blue-600 bg-blue-50/40 shadow-xs'
+                                : 'border-slate-200/80 bg-white hover:border-slate-300'
+                            }`}
+                            onClick={() => setActivePreviewType(catItem.type)}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-900">{catItem.title}</span>
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold border ${statusColor}`}
+                                  >
+                                    {statusText}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-blue-700 font-semibold bg-blue-100/60 px-1.5 py-0.2 rounded inline-block">
+                                  {catItem.category}
+                                </span>
+                              </div>
+
+                              <button
+                                type="button"
+                                id={`btn-download-${catItem.type.toLowerCase()}`}
+                                disabled={isGenerating || isExportingAll || !validation.isValid}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleGenerateSingleDoc(catItem.type);
+                                }}
+                                className="px-3 py-1.5 bg-blue-800 hover:bg-blue-900 disabled:bg-slate-300 text-white rounded-lg text-xs font-bold shrink-0 transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                              >
+                                {isGenerating ? (
+                                  <>
+                                    <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                                    <span>Exporting...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Download className="w-3.5 h-3.5 text-blue-200" />
+                                    <span>{record ? 'Unduh Ulang' : 'Unduh .docx'}</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+
+                            <p className="text-[11px] text-slate-500 mt-1.5 leading-normal">{catItem.description}</p>
+
+                            <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
+                              <span>Sumber data: {catItem.requiredSources.join(' → ')}</span>
+                              {isSelectedForPreview ? (
+                                <span className="text-blue-700 font-bold flex items-center gap-0.5">
+                                  Sedang Ditinjau <ChevronRight className="w-3 h-3" />
+                                </span>
+                              ) : (
+                                <span className="hover:text-slate-600">Klik untuk pratinjau</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 );
@@ -456,8 +511,8 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
 
             <button
               onClick={() => handleGenerateSingleDoc(activePreviewType)}
-              disabled={generatingDocType === activePreviewType || !isATPValid}
-              className="text-xs font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200"
+              disabled={generatingDocType === activePreviewType || !validateDocumentRequirements(activePreviewType, context).isValid}
+              className="text-xs font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1 cursor-pointer bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200 disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Unduh {activePreviewType} (.docx)</span>
@@ -469,6 +524,7 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             {/* Header / KOP */}
             <div className="text-center space-y-1 border-b-2 border-slate-900 pb-3">
               <h2 className="text-base sm:text-lg font-extrabold tracking-tight uppercase text-blue-950">
+                {activePreviewType === 'ANALISIS_CP_TP' && 'ANALISIS CAPAIAN PEMBELAJARAN (CP) MENUJU TUJUAN PEMBELAJARAN (TP)'}
                 {activePreviewType === 'ATP' && 'ALUR TUJUAN PEMBELAJARAN (ATP)'}
                 {activePreviewType === 'PROTA' && 'PROGRAM TAHUNAN (PROTA)'}
                 {activePreviewType === 'PROMES' && 'PROGRAM SEMESTER (PROMES)'}
@@ -514,6 +570,81 @@ export const AdminDocsExport: React.FC<AdminDocsExportProps> = ({
             </div>
 
             {/* DOCUMENT-SPECIFIC PREVIEW CONTENT */}
+
+            {/* 0. ANALISIS CP -> TP PREVIEW */}
+            {activePreviewType === 'ANALISIS_CP_TP' && (
+              <div className="space-y-4">
+                {cp.generalDescription && (
+                  <div className="space-y-1">
+                    <h5 className="font-bold text-slate-900 uppercase">A. Capaian Pembelajaran Umum Fase {academicSetting.phase}</h5>
+                    <p className="text-slate-700 leading-relaxed text-justify bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                      {cp.generalDescription}
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <h5 className="font-bold text-slate-900 uppercase">B. Tabel Analisis Penurunan CP Menjadi TP</h5>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-[11px] border border-slate-300 border-collapse">
+                      <thead>
+                        <tr className="bg-blue-900 text-white font-semibold">
+                          <th className="p-1.5 border border-blue-800 text-center w-7">No</th>
+                          <th className="p-1.5 border border-blue-800 w-28">Elemen CP</th>
+                          <th className="p-1.5 border border-blue-800 min-w-[140px]">Teks Capaian Pembelajaran</th>
+                          <th className="p-1.5 border border-blue-800 min-w-[100px]">Analisis Kompetensi (KKO)</th>
+                          <th className="p-1.5 border border-blue-800 min-w-[100px]">Analisis Lingkup Materi</th>
+                          <th className="p-1.5 border border-blue-800 min-w-[140px]">Rumusan Tujuan Pembelajaran (TP)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(cp.elements && cp.elements.length > 0) ? (
+                          cp.elements.map((elem, idx) => {
+                            const relatedTps = tp.items.filter((t) => t.elementId === elem.id || t.element === elem.name);
+                            return (
+                              <tr key={elem.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                <td className="p-1.5 border border-slate-300 text-center font-bold">{idx + 1}</td>
+                                <td className="p-1.5 border border-slate-300 font-bold text-blue-950">{elem.name}</td>
+                                <td className="p-1.5 border border-slate-300 text-slate-700">{elem.description}</td>
+                                <td className="p-1.5 border border-slate-300">
+                                  <div className="text-[10px] text-slate-600">
+                                    Mengidentifikasi, memahami, menerapkan, mengevaluasi materi {elem.name}
+                                  </div>
+                                </td>
+                                <td className="p-1.5 border border-slate-300">
+                                  <div className="text-[10px] text-slate-600">
+                                    Konsep dan aplikasi esensial {elem.name}
+                                  </div>
+                                </td>
+                                <td className="p-1.5 border border-slate-300">
+                                  {relatedTps.length > 0 ? (
+                                    <ul className="space-y-1 list-disc list-inside">
+                                      {relatedTps.map((t) => (
+                                        <li key={t.id} className="text-[10px]">
+                                          <strong className="text-blue-900">{t.code}:</strong> {t.statement}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 italic">Rumusan TP diturunkan dari CP elemen ini</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td colSpan={6} className="p-4 text-center text-slate-400 italic">
+                              Capaian Pembelajaran (CP) belum tersedia. Silakan lengkapi pada langkah 03.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* 1. ATP PREVIEW */}
             {activePreviewType === 'ATP' && (

@@ -7,9 +7,10 @@ import {
   TPData,
   ATPData,
   AppDocumentRecord,
+  DocumentType,
 } from '../../types';
 
-export type DocumentType = 'ATP' | 'PROTA' | 'PROMES' | 'MODUL_AJAR' | 'ASESMEN' | 'JURNAL';
+export type { DocumentType };
 
 export interface DocumentGenerationContext {
   school: SchoolData;
@@ -18,7 +19,7 @@ export interface DocumentGenerationContext {
   workspace?: AdministrationWorkspace;
   cp?: CPData;
   tp?: TPData;
-  atp: ATPData;
+  atp?: ATPData;
   effectiveWeeksCount?: number; // for PROMES (default 18 weeks/semester)
 }
 

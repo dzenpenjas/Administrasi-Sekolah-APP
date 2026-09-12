@@ -37,47 +37,39 @@ async function generateContentWithRetry(params: {
   contents: string;
   config?: any;
 }): Promise<{ text?: string }> {
-  const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+  // Ordered by high availability and low latency
+  const modelsToTry = [
+    'gemini-2.5-flash',
+    'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.8-flash',
+    'gemini-3.1-pro-preview',
+  ];
   const ai = getAIClient();
   let lastError: any = null;
 
   for (const model of modelsToTry) {
-    const maxRetries = 2;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: params.contents,
-          config: params.config,
-        });
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: params.contents,
+        config: params.config,
+      });
+      if (response && response.text) {
         return response;
-      } catch (err: any) {
-        lastError = err;
-        const errMsg = (err?.message || String(err)).toLowerCase();
-        const isTransient =
-          errMsg.includes('503') ||
-          errMsg.includes('unavailable') ||
-          errMsg.includes('high demand') ||
-          errMsg.includes('spikes in demand') ||
-          errMsg.includes('429') ||
-          errMsg.includes('resource_exhausted') ||
-          errMsg.includes('500');
-
-        console.warn(`[AI Service] Model ${model} (attempt ${attempt}/${maxRetries}) error: ${err?.message || err}`);
-
-        if (isTransient && attempt < maxRetries) {
-          const delay = attempt * 800 + Math.random() * 400;
-          await new Promise((resolve) => setTimeout(resolve, delay));
-          continue;
-        }
-        break; // try next fallback model
       }
+    } catch (err: any) {
+      lastError = err;
+      const errMsg = (err?.message || String(err)).toLowerCase();
+      console.warn(`[AI Service] Model ${model} encountered notice: ${err?.message || err}`);
+      // If 503 high demand or 429 rate limit, immediately continue to the next model in the cascade
+      await new Promise((resolve) => setTimeout(resolve, 300));
     }
   }
 
-  const finalErrMsg = lastError?.message || String(lastError);
-  if (finalErrMsg.includes('503') || finalErrMsg.includes('high demand') || finalErrMsg.includes('UNAVAILABLE')) {
-    throw new Error('Layanan AI sedang mengalami lonjakan trafik tinggi dari server pusat. Silakan coba klik tombol generate kembali dalam beberapa detik.');
+  const finalErrMsg = (lastError?.message || String(lastError)).toLowerCase();
+  if (finalErrMsg.includes('503') || finalErrMsg.includes('high demand') || finalErrMsg.includes('unavailable')) {
+    throw new Error('Layanan AI sedang mengalami lonjakan antrean trafik tinggi. Silakan klik tombol generate kembali.');
   }
   throw lastError || new Error('Gagal memproses permintaan AI');
 }

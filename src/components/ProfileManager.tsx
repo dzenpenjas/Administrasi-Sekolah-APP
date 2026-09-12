@@ -14,6 +14,7 @@ import {
   Info,
   CheckCircle2,
   AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { TeacherProfile, SchoolData } from '../types';
 import { EDUCATION_LEVELS } from '../data/curriculumDefaults';
@@ -517,14 +518,16 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
             </div>
 
             {/* School Lookup Section */}
+            {/* Search Input Box */}
             <div className="bg-blue-50/70 p-4 rounded-xl border border-blue-200/80 space-y-3">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-blue-950 uppercase flex items-center gap-1.5">
                   <Search className="w-4 h-4 text-blue-600" />
-                  <span>Cari Data Sekolah Online (Data Referensi Kemendikdasmen)</span>
+                  <span>Cari Data Sekolah di Internet (Kemendikdasmen / Dapodik / Web Resmi)</span>
                 </label>
-                <span className="text-[10px] font-medium text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-full">
-                  Sumber Resmi
+                <span className="text-[10px] font-medium text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Sumber Online
                 </span>
               </div>
 
@@ -532,7 +535,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                 <input
                   id="input-search-school-query"
                   type="text"
-                  placeholder="Ketik Nama Sekolah atau 8-Digit NPSN..."
+                  placeholder="Ketik Nama Sekolah atau 8-Digit NPSN (misal: SD Negeri 1 Menteng / 20108341)..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -553,12 +556,12 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                   {isSearchingSchool ? (
                     <>
                       <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                      <span>Mencari...</span>
+                      <span>Mencari di Web...</span>
                     </>
                   ) : (
                     <>
                       <Search className="w-3.5 h-3.5" />
-                      <span>Cari Sekolah</span>
+                      <span>Cari di Internet</span>
                     </>
                   )}
                 </button>
@@ -568,7 +571,7 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
               {isSearchingSchool && (
                 <div className="flex items-center gap-2 text-xs text-blue-700 py-1 font-medium animate-pulse">
                   <div className="w-3 h-3 border-2 border-blue-600/40 border-t-blue-600 rounded-full animate-spin" />
-                  <span>Menghubungi data referensi satuan pendidikan Kemendikdasmen...</span>
+                  <span>Mencari data sekolah di internet dari sumber resmi Kemendikdasmen & direktori nasional...</span>
                 </div>
               )}
 
@@ -629,18 +632,19 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
 
               {/* Candidates List */}
               {searchResults.length > 0 && !isSearchingSchool && (
-                <div className="space-y-2 pt-1 max-h-48 overflow-y-auto pr-1">
-                  <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider">
-                    Hasil Pencarian ({searchResults.length} Sekolah Ditemukan):
+                <div className="space-y-2 pt-1 max-h-56 overflow-y-auto pr-1">
+                  <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center justify-between">
+                    <span>Hasil Pencarian ({searchResults.length} Sekolah Ditemukan):</span>
+                    <span className="text-[10px] text-slate-400 font-normal">Klik Pilih untuk mengisi otomatis</span>
                   </div>
                   {searchResults.map((cand, idx) => (
                     <div
                       key={idx}
                       onClick={() => handleSelectCandidate(cand)}
-                      className="p-3 rounded-xl bg-white border border-blue-200/90 hover:border-blue-600 hover:bg-blue-50/60 cursor-pointer transition shadow-2xs group"
+                      className="p-3.5 rounded-xl bg-white border border-blue-200/90 hover:border-blue-600 hover:bg-blue-50/60 cursor-pointer transition shadow-2xs group"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
+                        <div className="space-y-1.5 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs font-bold text-slate-900 group-hover:text-blue-700">
                               {cand.name}
@@ -655,25 +659,50 @@ export const ProfileManager: React.FC<ProfileManagerProps> = ({
                                 {cand.status}
                               </span>
                             )}
+                            <span className="px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-medium rounded">
+                              Sumber online
+                            </span>
                           </div>
-                          <div className="text-[11px] text-slate-500">
-                            NPSN: <span className="font-semibold text-slate-700">{cand.npsn || '-'}</span> • {cand.regency}, {cand.province}
+
+                          <div className="text-[11px] text-slate-600">
+                            NPSN: <span className="font-semibold text-slate-800">{cand.npsn || 'Belum tersedia'}</span>
+                            {cand.district ? ` • ${cand.district}` : ''}
+                            {cand.regency ? `, ${cand.regency}` : ''}
+                            {cand.province ? `, Prov. ${cand.province}` : ''}
                           </div>
+
                           {cand.address && (
-                            <div className="text-[10px] text-slate-400 truncate max-w-sm">
-                              {cand.address} {cand.village ? `, ${cand.village}` : ''} {cand.district ? `, ${cand.district}` : ''}
+                            <div className="text-[10px] text-slate-500 line-clamp-1">
+                              {cand.address} {cand.village ? `, ${cand.village}` : ''}
                             </div>
                           )}
+
+                          <div className="text-[10px] text-slate-400 flex items-center gap-2 flex-wrap pt-0.5">
+                            <span>Sumber: <strong className="text-slate-600">{cand.source || 'Data Referensi Kemendikdasmen'}</strong></span>
+                            {cand.sourceUrl && (
+                              <a
+                                href={cand.sourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-0.5 text-blue-600 hover:text-blue-800 underline"
+                              >
+                                <span>Buka sumber</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            )}
+                          </div>
                         </div>
+
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleSelectCandidate(cand);
                           }}
-                          className="text-[11px] font-bold text-blue-700 bg-blue-50 group-hover:bg-blue-700 group-hover:text-white border border-blue-200 group-hover:border-blue-700 px-3 py-1.5 rounded-lg shrink-0 transition cursor-pointer shadow-2xs"
+                          className="text-[11px] font-bold text-white bg-blue-700 hover:bg-blue-800 border border-blue-700 px-3.5 py-1.5 rounded-lg shrink-0 transition cursor-pointer shadow-xs"
                         >
-                          Pilih Sekolah
+                          Pilih
                         </button>
                       </div>
                     </div>
