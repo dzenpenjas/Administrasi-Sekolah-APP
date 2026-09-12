@@ -1,0 +1,317 @@
+import express from 'express';
+import path from 'path';
+import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI, Type } from '@google/genai';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const app = express();
+const PORT = 3000;
+
+app.use(express.json({ limit: '10mb' }));
+
+// Lazy initializer for Gemini client to prevent crashes if key is missing on load
+let aiClient: GoogleGenAI | null = null;
+function getAIClient(): GoogleGenAI {
+  if (!aiClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('GEMINI_API_KEY environment variable is not configured');
+    }
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
+  }
+  return aiClient;
+}
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    geminiConfigured: !!process.env.GEMINI_API_KEY,
+  });
+});
+
+// 1. Endpoint: AI Understanding & Breakdown of CP
+app.post('/api/ai/analyze-cp', async (req, res) => {
+  try {
+    const { cpText, elements, subject, grade, phase, curriculum } = req.body;
+
+    if (!cpText && (!elements || elements.length === 0)) {
+      return res.status(400).json({ error: 'Data CP tidak boleh kosong' });
+    }
+
+    const ai = getAIClient();
+    const prompt = `Anda adalah pakar kurikulum dan konsultan pendidikan profesional di Indonesia.
+Bantu seorang guru memahami, membedah, dan menganalisis Capaian Pembelajaran (CP) berikut:
+
+- Mata Pelajaran: ${subject || 'Mata Pelajaran'}
+- Jenjang & Kelas: ${grade || 'Kelas 4'} (${phase || 'Fase B'})
+- Kurikulum: ${curriculum || 'Kurikulum Merdeka'}
+- CP Umum: ${cpText || '-'}
+- Elemen CP: ${
+      elements && elements.length > 0
+        ? elements.map((e: { name: string; content: string }) => `[${e.name}]: ${e.content}`).join('\n')
+        : 'Tidak ada rincian elemen terpisah'
+    }
+
+Berikan output dalam format JSON dengan struktur:
+1. "summary": Ringkasan fokus utama CP dalam 1-2 paragraf bahasa Indonesia yang jelas, bernas, dan aplikatif bagi guru.
+2. "keyCompetencies": Array string berisi daftar kompetensi utama/kata kerja operasional (KKO) yang ditargetkan pada fase ini.
+3. "keyContents": Array string materi/konten inti esensial.
+4. "p3Focus": Array string dimensi Profil Pelajar Pancasila yang paling relevan.
+5. "pedagogicalTips": Array string berisi 2-3 tips strategi pembelajaran kontekstual di kelas.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            summary: { type: Type.STRING },
+            keyCompetencies: { type: Type.ARRAY, items: { type: Type.STRING } },
+            keyContents: { type: Type.ARRAY, items: { type: Type.STRING } },
+            p3Focus: { type: Type.ARRAY, items: { type: Type.STRING } },
+            pedagogicalTips: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+          required: ['summary', 'keyCompetencies', 'keyContents', 'p3Focus', 'pedagogicalTips'],
+        },
+      },
+    });
+
+    const jsonText = response.text || '{}';
+    const parsed = JSON.parse(jsonText);
+    res.json({ success: true, data: parsed });
+  } catch (error: unknown) {
+    console.error('Error analyzing CP:', error);
+    const message = error instanceof Error ? error.message : 'Terjadi kesalahan saat memproses AI';
+    res.status(500).json({ error: message });
+  }
+});
+
+// 2. Endpoint: AI Generate TP from CP
+app.post('/api/ai/generate-tp', async (req, res) => {
+  try {
+    const { cpGeneral, cpElements, subject, grade, phase, curriculum, count = 4 } = req.body;
+
+    if (!cpGeneral && (!cpElements || cpElements.length === 0)) {
+      return res.status(400).json({ error: 'Capaian Pembelajaran (CP) harus diisi terlebih dahulu' });
+    }
+
+    const ai = getAIClient();
+    const prompt = `Anda adalah ahli perancangan kurikulum pendidikan nasional Indonesia.
+Tugas Anda adalah merumuskan Tujuan Pembelajaran (TP) yang diturunkan SECARA KETAT dan EKSPLISIT dari Capaian Pembelajaran (CP) yang diberikan di bawah ini.
+
+PERINGATAN PENTING:
+- TP HARUS mencakup Kompetensi (kemampuan/keterampilan) dan Lingkup Materi (konten esensial).
+- Formula TP yang baik: "Peserta didik mampu [Kompetensi/KKO] [Lingkup Materi] melalui [Konteks/Aktivitas/Kondisi] dengan [Kriteria/Tepat]."
+- TP harus dapat diobservasi dan diukur (mengacu pada Taksonomi Bloom / Anderson atau Marzano).
+- Jangan membuat TP yang menyimpang dari CP yang tersimpan.
+
+DATA PEMBELAJARAN:
+- Mata Pelajaran: ${subject || 'Bahasa Indonesia'}
+- Tingkat: ${grade || 'Kelas 4'} (${phase || 'Fase B'})
+- Kurikulum: ${curriculum || 'Kurikulum Merdeka'}
+- Deskripsi CP Umum: ${cpGeneral || '-'}
+- Elemen-Elemen CP:
+${
+  cpElements && cpElements.length > 0
+    ? cpElements.map((e: { name: string; content: string }, idx: number) => `${idx + 1}. [Elemen: ${e.name}]: ${e.content}`).join('\n')
+    : 'Tidak ada rincian elemen.'
+}
+
+Buatlah sekitar ${count} hingga 6 butir Tujuan Pembelajaran (TP) yang sistematis.
+Kembalikan respon dalam format JSON sesuai schema:`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              code: { type: Type.STRING, description: 'Kode TP misal TP 4.1, TP 4.2' },
+              elementName: { type: Type.STRING, description: 'Nama Elemen CP yang menjadi rujukan' },
+              statement: { type: Type.STRING, description: 'Rumusan kalimat Tujuan Pembelajaran lengkap' },
+              competence: { type: Type.STRING, description: 'Kata Kerja Operasional / Kompetensi utama' },
+              contentScope: { type: Type.STRING, description: 'Lingkup Materi / Topik Pembelajaran' },
+              p3Dimensions: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: 'Dimensi Profil Pelajar Pancasila yang diasah (1-3 dimensi)',
+              },
+            },
+            required: ['code', 'elementName', 'statement', 'competence', 'contentScope', 'p3Dimensions'],
+          },
+        },
+      },
+    });
+
+    const jsonText = response.text || '[]';
+    const parsed = JSON.parse(jsonText);
+    res.json({ success: true, items: parsed });
+  } catch (error: unknown) {
+    console.error('Error generating TP:', error);
+    const message = error instanceof Error ? error.message : 'Terjadi kesalahan saat membuat TP dengan AI';
+    res.status(500).json({ error: message });
+  }
+});
+
+// 3. Endpoint: AI Generate ATP from TP
+app.post('/api/ai/generate-atp', async (req, res) => {
+  try {
+    const { tps, cpGeneral, subject, grade, phase, semester, academicYear, totalHoursPerWeek = 5 } = req.body;
+
+    if (!tps || !Array.isArray(tps) || tps.length === 0) {
+      return res.status(400).json({ error: 'Daftar Tujuan Pembelajaran (TP) harus ada sebelum menyusun ATP' });
+    }
+
+    const ai = getAIClient();
+    const prompt = `Anda adalah spesialis penyusun Alur Tujuan Pembelajaran (ATP) dan perangkat pembelajaran Kurikulum Merdeka.
+Susunlah Matriks Alur Tujuan Pembelajaran (ATP) yang berurutan secara logis, pedagogis, dan terstruktur dari daftar Tujuan Pembelajaran (TP) berikut:
+
+DATA PEMBELAJARAN:
+- Mata Pelajaran: ${subject || 'Bahasa Indonesia'}
+- Kelas / Fase: ${grade || 'Kelas 4'} / ${phase || 'Fase B'}
+- Tahun Ajaran / Semester: ${academicYear || '2025/2026'} / ${semester || '1 (Ganjil)'}
+- Alokasi Jam per Minggu: ${totalHoursPerWeek} JP
+- Rujukan CP: ${cpGeneral || 'Sesuai kurikulum nasional'}
+
+DAFTAR TP YANG SUDAH DIBUAT:
+${tps
+  .map(
+    (tp: { code: string; statement: string; competence?: string; contentScope?: string; p3Dimensions?: string[] }, idx: number) =>
+      `${idx + 1}. [Kode: ${tp.code}] ${tp.statement} (Materi: ${tp.contentScope || '-'}, Kompetensi: ${
+        tp.competence || '-'
+      }, P3: ${tp.p3Dimensions?.join(', ') || '-'})`
+  )
+  .join('\n')}
+
+INSTRUKSI PENYUSUNAN ATP:
+1. Urutkan TP secara logis (misal dari konkret ke abstrak, mudah ke sukar, atau hierarki keterampilan bahasa/sains/matematika).
+2. Tentukan Alokasi Waktu (JP) yang realistis untuk tiap langkah pembelajaran (total berkisar 20-36 JP per semester untuk mapel ini).
+3. Rincikan Rencana Asesmen (Asesmen Awal, Formatif, dan Sumatif Lingkup Materi).
+4. Rincikan Glosarium / Kata Kunci penting.
+5. Buat rasionalisasi alur pembelajaran secara komprehensif.
+
+Kembalikan output JSON sesuai schema:`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            rationale: {
+              type: Type.STRING,
+              description: 'Penjelasan rasional mengapa alur TP disusun dalam urutan ini.',
+            },
+            items: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  stepNumber: { type: Type.INTEGER, description: 'Urutan alur pembelajaran (1, 2, 3...)' },
+                  tpCode: { type: Type.STRING, description: 'Kode TP yang diurutkan' },
+                  tpStatement: { type: Type.STRING, description: 'Rumusan TP' },
+                  materialScope: { type: Type.STRING, description: 'Lingkup Materi / Topik Pembelajaran Spesifik' },
+                  jp: { type: Type.INTEGER, description: 'Jumlah Alokasi Jam Pelajaran (JP), misal 4, 6, 8' },
+                  p3Dimensions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  assessmentPlan: { type: Type.STRING, description: 'Bentuk Asesmen Awal, Formatif, dan Sumatif' },
+                  glossary: { type: Type.STRING, description: 'Kata kunci / Glosarium istilah penting' },
+                  resources: { type: Type.STRING, description: 'Sumber belajar / Media yang disarankan' },
+                },
+                required: [
+                  'stepNumber',
+                  'tpCode',
+                  'tpStatement',
+                  'materialScope',
+                  'jp',
+                  'p3Dimensions',
+                  'assessmentPlan',
+                  'glossary',
+                ],
+              },
+            },
+          },
+          required: ['rationale', 'items'],
+        },
+      },
+    });
+
+    const jsonText = response.text || '{}';
+    const parsed = JSON.parse(jsonText);
+    res.json({ success: true, data: parsed });
+  } catch (error: unknown) {
+    console.error('Error generating ATP:', error);
+    const message = error instanceof Error ? error.message : 'Terjadi kesalahan saat menyusun ATP dengan AI';
+    res.status(500).json({ error: message });
+  }
+});
+
+// 4. Endpoint: AI Refine / Polish any custom text
+app.post('/api/ai/refine-text', async (req, res) => {
+  try {
+    const { text, instruction, context } = req.body;
+    if (!text) {
+      return res.status(400).json({ error: 'Teks tidak boleh kosong' });
+    }
+
+    const ai = getAIClient();
+    const prompt = `Anda adalah asisten ahli administrasi guru Indonesia.
+Teks asli: "${text}"
+Konteks: ${context || 'Administrasi Kurikulum Merdeka'}
+Instruksi perbaikan: ${instruction || 'Sempurnakan tata bahasa, ketepatan pedagogis, dan istilah Kurikulum Merdeka agar lebih formal, jelas, dan operasional.'}
+
+Berikan versi teks hasil penyempurnaan dalam bahasa Indonesia yang baku dan elegan. Langsung berikan teks hasil tanpa pembuka/penutup.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+    });
+
+    res.json({ success: true, refinedText: response.text?.trim() });
+  } catch (error: unknown) {
+    console.error('Error refining text:', error);
+    const message = error instanceof Error ? error.message : 'Gagal menyempurnakan teks';
+    res.status(500).json({ error: message });
+  }
+});
+
+// Vite middleware in dev or static files in prod
+async function startServer() {
+  if (process.env.NODE_ENV !== 'production') {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Administrasi Guru AI Server running at http://0.0.0.0:${PORT}`);
+  });
+}
+
+startServer();
